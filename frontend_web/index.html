@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Consensus Arena Simulator</title>
+    <style>
+        body { margin: 0; padding: 0; background: #111; color: #fff; font-family: monospace; overflow: hidden; display: flex; flex-direction: column; height: 100vh; }
+        
+        /* The main arena area where the canvas lives */
+        #arena-container { flex: 1; position: relative; display: flex; justify-content: space-between; padding: 10px; box-sizing: border-box; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; display: block; }
+
+        /* UI Panels */
+        .ui-column { position: relative; z-index: 10; display: flex; flex-direction: column; gap: 15px; height: calc(100vh - 60px); pointer-events: none; }
+        .ui-left { width: 300px; }
+        .ui-right { width: 280px; align-items: flex-end; }
+        
+        .panel { background: rgba(0,0,0,0.85); padding: 15px; border-radius: 8px; border: 1px solid #333; pointer-events: auto; width: 100%; box-sizing: border-box; }
+        .scrollable { overflow-y: auto; flex-shrink: 1; }
+
+        .control-group { margin-bottom: 10px; }
+        button { background: #333; color: #fff; border: 1px solid #555; padding: 5px 10px; cursor: pointer; margin-right: 5px; margin-bottom: 4px; }
+        button:hover { background: #555; }
+        button.active { background: #0a0; border-color: #0f0; }
+        select { background: #333; color: #fff; border: 1px solid #555; padding: 5px; width: 100%; margin-bottom: 5px;}
+        
+        #status { color: #f00; margin-bottom: 10px; font-weight: bold; }
+        .connected { color: #0f0 !important; }
+        
+        /* Ticker at the bottom */
+        #ticker { background: rgba(0,0,0,0.9); border-top: 1px solid #0ff; padding: 10px 15px; font-size: 14px; color: #0ff; white-space: nowrap; overflow: hidden; z-index: 10; position: relative; }
+        
+        /* Leaderboard and Node Details specific */
+        h3 { margin: 0 0 8px 0; font-size: 14px; }
+        #leaderboard h3 { color: #0ff; }
+        #nodeDetail { display: none; }
+        #nodeDetail h3 { color: #ff0; }
+        
+        .lb-row { font-size: 12px; margin: 2px 0; }
+        .metric-row { font-size: 12px; margin: 2px 0; color: #ccc; }
+        
+        .train-btn { padding: 6px 10px; font-size: 12px; margin-top: 6px; margin-right: 4px; cursor: pointer; border: 1px solid #555; width: 100%; box-sizing: border-box; }
+        .train-fp { background: #1b5e20; color: #4caf50; }
+        .train-fp:hover { background: #2e7d32; }
+        .train-ma { background: #b71c1c; color: #ef9a9a; margin-top: 5px; }
+        .train-ma:hover { background: #c62828; }
+    </style>
+</head>
+<body>
+    
+    <div id="arena-container">
+        <!-- Canvas Background -->
+        <canvas id="arena"></canvas>
+
+        <!-- Left Controls Column -->
+        <div class="ui-column ui-left">
+            <div class="panel scrollable">
+                <div id="status">Disconnected</div>
+                <div id="metrics">
+                    Round: <span id="round">0</span> | Nodes: <span id="nodeCount">0</span><br>
+                    Consensus: <span id="consensus">-</span> | TPS: <span id="tps">0</span>
+                </div>
+                <hr style="border-color: #333;">
+                <div class="control-group">
+                    <strong>Switch Consensus:</strong><br><br>
+                    <button onclick="switchConsensus('PoW')">PoW</button>
+                    <button onclick="switchConsensus('PoS')">PoS</button>
+                    <button onclick="switchConsensus('DPoS')">DPoS</button>
+                    <button onclick="switchConsensus('PBFT')">PBFT</button>
+                </div>
+                <div class="control-group">
+                    <strong>Inject Fault:</strong><br><br>
+                    <select id="nodeSelect"></select>
+                    <select id="faultSelect">
+                        <option value="honest">Honest (Heal)</option>
+                        <option value="offline">Offline</option>
+                        <option value="malicious">Malicious</option>
+                        <option value="stealth">Stealth</option>
+                    </select>
+                    <button style="width: 100%" onclick="injectFault()">Inject</button>
+                </div>
+                <hr style="border-color: #333;">
+                <div class="control-group">
+                    <strong>Network:</strong><br><br>
+                    <button id="splitBtn" style="width: 100%" onclick="toggleSplit()">Sever Network</button>
+                </div>
+                <div class="control-group">
+                    <strong>Scaling:</strong><br><br>
+                    <button onclick="sendAction('add_node')">+ Node</button>
+                    <button onclick="sendAction('remove_node')">- Node</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Info Column -->
+        <div class="ui-column ui-right">
+            <!-- Leaderboard -->
+            <div id="leaderboard" class="panel scrollable">
+                <h3>REPUTATION BOARD</h3>
+                <div id="lbContent">...</div>
+            </div>
+
+            <!-- Node Detail -->
+            <div id="nodeDetail" class="panel scrollable">
+                <h3 id="detailTitle">node_0</h3>
+                <div class="metric-row">Reputation: <span id="detailRep">100</span></div>
+                <div class="metric-row">Status: <span id="detailStatus">Trusted</span></div>
+                <div class="metric-row">Hardware: <strong id="detailProfile" style="color:#fff">Loading...</strong></div>
+                <div class="metric-row">ML Threat: <span id="detailThreat">0%</span></div>
+                <hr style="border-color:#555">
+                <div class="metric-row" style="color:#aaa">── ML Model Breakdown ──</div>
+                <div class="metric-row">Neural Net: <span id="detailNN">0%</span></div>
+                <div class="metric-row">Anomaly Score: <span id="detailAnomaly">0%</span></div>
+                <hr style="border-color:#555">
+                <div class="metric-row" style="color:#aaa">── Live Telemetry ──</div>
+                <div class="metric-row">Msg Freq: <span id="detailFreq">-</span></div>
+                <div class="metric-row">Vote Drift: <span id="detailVote">-</span></div>
+                <div class="metric-row">Latency: <span id="detailLat">-</span></div>
+                <div class="metric-row">Forks: <span id="detailForks">-</span></div>
+                <div class="metric-row">Silence: <span id="detailSilence">-</span></div>
+                <hr style="border-color:#555">
+                <div class="metric-row" style="color:#aaa">── Online Training ──</div>
+                <button class="train-btn train-fp" onclick="trainFalsePositive()">🟢 False Positive</button>
+                <button class="train-btn train-ma" onclick="trainMissedAttack()">🔴 Missed Attack</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Ticker -->
+    <div id="ticker">AWAITING BLOCKS...</div>
+
+    <script src="app.js"></script>
+</body>
+</html>
