@@ -89,7 +89,16 @@ class ReputationManager:
             if not hasattr(node, 'ml_prob'):
                 node.ml_prob = 0.0
                 
-            smoothed = (node.ml_prob * 0.55) + (final_threat * 0.45)
+            if not hasattr(node, 'alpha'): node.alpha = 20.0
+            if not hasattr(node, 'beta'): node.beta = 1.0
+            # Dynamic Trust EMA
+            trust = node.alpha / (node.alpha + node.beta)
+            
+            # Trust Shield Bypass: Reputation protects against noise, not blatant attacks
+            if final_threat > 0.7:
+                trust = min(trust, 0.4)
+                
+            smoothed = (node.ml_prob * trust) + (final_threat * (1.0 - trust))
             smoothed_threats.append(smoothed)
             
             node_evals[node.id] = (smoothed, enriched_features, {
@@ -135,8 +144,12 @@ class ReputationManager:
                 alpha_retention = 1.0 - (excess_ratio ** p_slash)
                 node.alpha = node.alpha * max(alpha_retention, 0.05)
             else:
-                # Honest round: normal operation
-                node.alpha += 1.0
+                # Honest round: Beta-Weighted Trust Recovery
+                # If they have a massive criminal record (high beta), earning trust is extremely difficult.
+                # Honest nodes (beta ≈ 1) earn 1.0 alpha. Hackers (beta = 100) earn 0.1 alpha.
+                import math
+                trust_reward = 1.0 / max(1.0, math.sqrt(node.beta))
+                node.alpha += trust_reward
                 
             # Convert Beta probabilistic counters to 0-100 float for the UI and network rules
             node.reputation = (node.alpha / (node.alpha + node.beta)) * 100.0

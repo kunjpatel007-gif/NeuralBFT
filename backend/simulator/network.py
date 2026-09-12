@@ -51,6 +51,8 @@ class NetworkManager:
                     "network_profile": getattr(node, "network_profile", "Unknown"),
                     "fault_type": getattr(node, "fault_type", None),
                     "ml_prob": getattr(node, "ml_prob", 0.0),
+                    "alpha": getattr(node, "alpha", 20.0),
+                    "beta": getattr(node, "beta", 1.0),
                     "ml_features": getattr(node, "ml_features", {}),
                     "ml_detail": getattr(node, "ml_detail", {})
                 } for node in self.nodes

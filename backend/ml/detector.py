@@ -1,8 +1,7 @@
 import numpy as np
 import os
 import pandas as pd
-from sklearn.neural_network import MLPClassifier
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
 
 # Expanded to 11 features for Temporal Fusion
 FEATURE_NAMES = [
@@ -16,12 +15,10 @@ class ByzantineDetector:
         self.csv_path = os.path.join(os.path.dirname(__file__), 'master_training_data.csv')
         
         # ── Models ──
-        self.nn = MLPClassifier(
-            hidden_layer_sizes=(32, 16, 8),
-            activation='relu',
-            solver='adam',
-            max_iter=500,          # Full fit can take more iterations
-            warm_start=False,
+        self.nn = RandomForestClassifier(
+            n_estimators=100,
+            max_depth=10,
+            class_weight='balanced',
             random_state=42
         )
         
@@ -148,8 +145,10 @@ class ByzantineDetector:
         except Exception:
             anomaly_score = 0.0
         
-        # ── Blend: 50% NN + 50% Anomaly ──
-        combined = (nn_prob * 0.5) + (anomaly_score * 0.5)
+        # ── Blend: Neural Net is Primary, Anomaly is Secondary ──
+        # The Isolation Forest is extremely noisy on honest nodes. We dampen its output by 50%.
+        # However, we still use max() so a 100% confident Neural Net detection hits with 100% power.
+        combined = max(nn_prob, anomaly_score * 0.5)
         
         return {
             'nn_prob': round(nn_prob, 4),
