@@ -1,59 +1,76 @@
-# NeuralBFT (Consensus Arena)
+# Consensus Arena: ML-Driven BFT Simulator
 
-A Byzantine Fault Tolerance (BFT) blockchain simulator featuring an integrated Machine Learning perception layer and a Bayesian reputation policy engine. 
+![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-1.3.0+-orange.svg)
+![websockets](https://img.shields.io/badge/websockets-12.0+-lightgrey.svg)
+![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
 
-This project simulates a decentralized consensus network operating under chaotic, real-world network conditions (e.g., public Wi-Fi, satellite latency) and dynamically mitigates adversarial nodes using a trained Neural Network.
+## Abstract
+Consensus Arena is a Byzantine Fault Tolerance (BFT) blockchain simulator designed to test adversarial mitigation under chaotic network constraints. Traditional BFT systems rely on rigid, hardcoded heuristics that fail in high-latency environments (e.g., Satellite, Public Wi-Fi). This project solves that by replacing static heuristics with a **Machine Learning Perception Layer** (`MLPClassifier`) and an **Adaptive Bayesian Policy Engine**.
 
-## Architecture
+## System Architecture
 
-The system is strictly decoupled into three layers:
-1. **Core Simulator (`main.py` / `node.py`):** Handles websocket broadcasting, hardware profile assignment, and round-based consensus mechanics.
-2. **Perception Layer (`detector.py`):** An `MLPClassifier` combined with an `IsolationForest` that ingests raw network telemetry (latency, message frequency, vote inconsistency, and temporal deltas) to output a probabilistic threat score (0.0 - 1.0).
-3. **Policy Layer (`policy.py`):** A Bayesian reputation engine that translates ML threat scores into actionable consensus penalties.
+The pipeline is decoupled into three distinct layers: Telemetry, Perception, and Policy. 
 
-## Key Features
+```mermaid
+graph TD
+    subgraph Core Simulation
+        N[Node Hardware Profiles] -->|Generates Network Physics| T[Telemetry Pipeline]
+        T -->|Latency, Jitter, Msg Freq| M
+    end
 
-* **Adaptive Trust Slashing:** Standard Bayesian reputation (`alpha / alpha + beta`) is enhanced with exponential beta scaling and adaptive alpha decay. Minor lag spikes incur gentle penalties, while blatant 99% threats instantly destroy a node's historical trust cushion.
-* **EMA Network Thresholds:** The baseline threat threshold dynamically adjusts using an Exponential Moving Average of the global network state, preventing mass false-positives during global lag events.
-* **Hardware Profiles:** Simulates 7 distinct network profiles (Fiber, Satellite, 3G, Public Wi-Fi, etc.), forcing the ML model to differentiate between adversarial behavior and natural packet loss.
-* **Temporal Fusion:** The ML model tracks 6 temporal rate-of-change features (deltas) to detect "Stealth" nodes attempting to yo-yo between malicious and honest behavior.
-* **Live UI Visualization:** Real-time vanilla JS/HTML canvas frontend rendering node state, network physics, and ML threat analytics via WebSockets.
+    subgraph Perception Layer
+        M[Temporal Fusion] -->|Rate-of-Change Deltas| NN{MLP Classifier}
+        NN -->|Sigmoid Activation| TS[Threat Score 0.0 - 1.0]
+    end
 
-## Tech Stack
+    subgraph Policy Layer
+        TS --> EMA[EMA Network Threshold]
+        EMA -->|Threat < Threshold| A[Alpha Reward: +1.0]
+        EMA -->|Threat >= Threshold| B[Exponential Beta Scaling]
+        B --> S[Adaptive Alpha Slashing]
+        
+        A --> REP
+        S --> REP
+        REP[Reputation = α / α+β] --> O((Consensus Weight))
+    end
+```
 
-* **Backend:** Python 3.14+, `scikit-learn`, `pandas`, `numpy`, `websockets`
-* **Frontend:** HTML5, CSS Flexbox, Vanilla JavaScript (Canvas API)
+### 1. Perception Layer (Machine Learning)
+Instead of hardcoded rules, network telemetry is passed into an `MLPClassifier`. To prevent "Sleeper Attacks" or "Yo-Yo Stealth Attacks", the model utilizes **Temporal Fusion**—tracking 6 historical deltas (rate-of-change) to detect sudden anomalies in behavior, yielding a probabilistic threat score.
 
-## Installation & Usage
+### 2. Policy Layer (Bayesian Reputation)
+Threat scores do not directly slash nodes. They are passed to a Bayesian Beta Reputation system (`Reputation = α / α + β`).
+* **EMA Baselines:** The punishment threshold dynamically adjusts to the global network mean, preventing mass false-positives during simulated global outages.
+* **Adaptive Trust Slashing:** Threat scores near 99% trigger critical penalties—exponentially scaling the `beta` (suspicious) counter and mathematically slashing the `alpha` (honest history) cushion.
 
-1. Clone the repository and navigate to the root directory.
-2. Install the required Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Start the backend simulation server:
-   ```bash
-   python backend/main.py
-   ```
-4. Open the frontend UI:
-   Double-click `frontend_web/index.html` in any modern web browser.
+## Installation
 
-## Repository Structure
+**Prerequisites:** Python 3.14 or higher.
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/your-username/consensus-arena.git
+cd consensus-arena
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Initialize the Simulation Server
+python backend/main.py
+```
+
+## Usage
+Once the WebSocket backend is initialized on `localhost`, open `frontend_web/index.html` in any Chromium-based browser to access the dynamic simulation dashboard.
+
+## Directory Structure
 
 ```text
 ├── backend/
-│   ├── main.py                 # Core simulation loop and WebSocket server
-│   ├── mitigation/
-│   │   └── policy.py           # Bayesian Beta reputation engine
-│   ├── ml/
-│   │   ├── detector.py         # MLPClassifier and dataset bootstrapping
-│   │   └── master_training_data.csv # Actively trained dataset
-│   └── simulator/
-│       ├── network.py          # Network state management
-│       ├── node.py             # Node instances and hardware profiles
-│       └── consensus/          # PBFT, PoW, PoS, DPoS implementations
-├── frontend_web/
-│   ├── index.html              # Dynamic Flexbox UI layout
-│   └── app.js                  # Canvas rendering and WebSocket client
+│   ├── mitigation/         # Bayesian reputation engine & EMA logic
+│   ├── ml/                 # Neural network models and active training datasets
+│   ├── simulator/          # Core consensus loop (PBFT, PoW, PoS)
+│   └── main.py             # Entry point & WebSocket configuration
+├── frontend_web/           # Vanilla JS/Canvas visualization dashboard
 └── requirements.txt
 ```
