@@ -1,2 +1,75 @@
+# Unity generated folders
+unity/My project/[Ll]ibrary/
+unity/My project/[Tt]emp/
+unity/My project/[Oo]bj/
+unity/My project/[Bb]uild/
+unity/My project/[Bb]uilds/
+unity/My project/[Ll]ogs/
+unity/My project/[Mm]emoryCaptures/
+unity/My project/[Uu]serSettings/
+
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]serSettings/
+
+# Unity generated files
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity3D generated meta files
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Crash logs
+sysinfo.txt
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ML Models / Weights
+*.pkl
+*.h5
+*.pb
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# OS specific
+.DS_Store
+Thumbs.db
 desktop.ini
-*.txt
+
+# Data files
+*.npy
+*.pt

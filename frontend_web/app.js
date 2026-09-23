@@ -1,378 +1,477 @@
-const canvas = document.getElementById('arena');
-const ctx = canvas.getContext('2d');
-let width, height;
+'use strict';
 
-function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
-    canvas.width = width;
-    canvas.height = height;
+const WS_URL = new URLSearchParams(location.search).get('ws') || 'ws://localhost:8765';
+
+const CONSENSUS = ['PoW', 'PoS', 'DPoS', 'PBFT'];
+const FAULTS = [
+  ['honest', 'Honest (Heal)'],
+  ['offline', 'Offline'],
+  ['malicious', 'Malicious'],
+  ['stealth', 'Stealth'],
+];
+
+const STATUS_COLOR = {
+  'Verified':    '#6bb8d4',
+  'Trusted':     '#5fb98c',
+  'Watched':     '#d4b155',
+  'High Risk':   '#d68a52',
+  'Quarantined': '#e06464',
+  'Blacklisted': '#8f3d47',
+};
+const DEFAULT_COLOR = STATUS_COLOR['Trusted'];
+const STEALTH_ATTACK_REP = 55;
+const TAU = Math.PI * 2;
+const FONT = '"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+
+const $ = (id) => document.getElementById(id);
+const key = (id) => String(id);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const color = (s) => STATUS_COLOR[s] || DEFAULT_COLOR;
+const threatColor = (p) => (p > 0.7 ? '#e06464' : p > 0.4 ? '#d4b155' : '#5fb98c');
+function num(v) { const n = typeof v === 'string' ? Number(v) : v; return typeof n === 'number' && Number.isFinite(n) ? n : null; }
+function fixed(v, d = 1, suffix = '') { const n = num(v); return n == null ? '—' : n.toFixed(d) + suffix; }
+function pct(v, d = 1) { const n = num(v); return n == null ? '—' : (n * 100).toFixed(d) + '%'; }
+function setText(el, v) { if (typeof el === 'string') el = $(el); const s = String(v); if (el && el.textContent !== s) el.textContent = s; }
+function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function partition(n) { return n.partition_id || 0; }
+function groups(nodes) {
+  const m = new Map();
+  for (const n of nodes) { const k = String(partition(n)); if (!m.has(k)) m.set(k, []); m.get(k).push(n); }
+  return [...m.entries()].sort((a, b) => Number(a[0]) - Number(b[0]) || a[0].localeCompare(b[0])).map((e) => e[1]);
 }
-window.addEventListener('resize', resize);
-resize();
 
 let state = { nodes: [], messages: [], round: 0, consensus: '-', blocks: [], metrics: {} };
+let index = new Map();
+let hasState = false;
 let isSplit = false;
+let splitPendingUntil = 0;
 let selectedNodeId = null;
 
-let ws;
+/* ── WebSocket ── */
+let ws = null;
 let reconnectTimeout = 1000;
+let reconnectTimer = null;
+
+const isOpen = () => !!ws && ws.readyState === WebSocket.OPEN;
 
 function connect() {
-    ws = new WebSocket('ws://localhost:8765');
-
-    ws.onopen = () => {
-        document.getElementById('status').innerText = 'Connected';
-        document.getElementById('status').className = 'connected';
-        reconnectTimeout = 1000;
-    };
-
-    ws.onmessage = (event) => {
-        try {
-            state = JSON.parse(event.data);
-            updateUI();
-        } catch (e) {
-            console.error('Failed to parse state:', e);
-        }
-    };
-
-    ws.onclose = () => {
-        document.getElementById('status').innerText = 'Disconnected';
-        document.getElementById('status').className = '';
-        setTimeout(connect, reconnectTimeout);
-        reconnectTimeout = Math.min(reconnectTimeout * 2, 10000);
-    };
+  clearTimeout(reconnectTimer);
+  setLink('connecting');
+  let socket;
+  try { socket = new WebSocket(WS_URL); } catch (e) { console.error(e); return retry(); }
+  ws = socket;
+  socket.onopen = () => { if (ws === socket) { reconnectTimeout = 1000; setLink('live'); } };
+  socket.onmessage = (event) => { if (ws === socket) receive(event.data); };
+  socket.onclose = () => { if (ws === socket) { setLink('offline'); retry(); } };
 }
 
+function retry() {
+  reconnectTimer = setTimeout(connect, reconnectTimeout);
+  reconnectTimeout = Math.min(reconnectTimeout * 2, 10000);
+}
+
+function setLink(s) {
+  $('link').dataset.state = s;
+  setText('status', s === 'live' ? 'Connected' : s === 'offline' ? 'Disconnected' : 'Connecting');
+  syncControls();
+  renderOverlay();
+}
+
+function receive(raw) {
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { console.error('Failed to parse state:', e); return; }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return;
+  // Full snapshots replace state; partial messages merge instead of wiping it
+  const partial = !Array.isArray(data.nodes);
+  if (partial && !['round', 'consensus', 'blocks', 'metrics', 'messages'].some((k) => k in data)) return;
+  const next = partial ? { ...state, ...data } : { ...data };
+  next.nodes = Array.isArray(next.nodes) ? next.nodes.filter((n) => n && n.id != null) : [];
+  next.messages = Array.isArray(next.messages) ? next.messages : [];
+  next.blocks = Array.isArray(next.blocks) ? next.blocks : [];
+  next.metrics = next.metrics && typeof next.metrics === 'object' ? next.metrics : {};
+  state = next;
+  hasState = true;
+  try { updateUI(); } catch (e) { console.error('Render error:', e); }
+}
+
+function send(payload) {
+  if (!isOpen()) return false;
+  ws.send(JSON.stringify(payload));
+  return true;
+}
+
+/* ── Commands ── */
+function trainFalsePositive() {
+  if (selectedNodeId != null) send({ action: 'report_false_positive', node_id: selectedNodeId });
+}
+function trainMissedAttack() {
+  if (selectedNodeId != null) send({ action: 'report_missed_attack', node_id: selectedNodeId });
+}
+function switchConsensus(consensus) {
+  send({ action: 'switch_consensus', consensus });
+}
+function injectFault() {
+  const nodeId = $('nodeSelect').value;
+  const faultType = $('faultSelect').value;
+  if (nodeId) send({ action: 'inject_fault', node_id: nodeId, fault_type: faultType });
+}
+function toggleSplit() {
+  const next = !isSplit;
+  if (!sendAction(next ? 'split_network' : 'merge_network')) return;
+  isSplit = next;
+  splitPendingUntil = Date.now() + 2500;
+  renderSplit();
+}
+function sendAction(action) {
+  return send({ action });
+}
+
+/* ── UI ── */
 function updateUI() {
-    document.getElementById('round').innerText = state.round || 0;
-    document.getElementById('consensus').innerText = state.consensus || '-';
-    document.getElementById('nodeCount').innerText = state.nodes ? state.nodes.length : 0;
-    document.getElementById('tps').innerText = (state.metrics && state.metrics.tps) || 0;
+  index = new Map(state.nodes.map((n) => [key(n.id), n]));
 
-    // Update node dropdown (rebuild when count changes)
-    const nodeSelect = document.getElementById('nodeSelect');
-    if (state.nodes && nodeSelect.children.length !== state.nodes.length) {
-        nodeSelect.innerHTML = '';
-        state.nodes.forEach(node => {
-            const opt = document.createElement('option');
-            opt.value = node.id;
-            opt.innerText = node.id;
-            nodeSelect.appendChild(opt);
-        });
-    }
+  setText('round', (state.round || 0).toLocaleString('en-US'));
+  setText('consensus', state.consensus || '-');
+  setText('nodeCount', state.nodes.length);
+  const tps = num(state.metrics.tps) ?? 0;
+  setText('tps', Number.isInteger(tps) ? tps : tps.toFixed(1));
 
-    // Leaderboard
-    if (state.nodes) {
-        const sorted = [...state.nodes].sort((a, b) => b.reputation - a.reputation);
-        let html = '';
-        sorted.forEach((n, i) => {
-            let color = '#4caf50'; // Default Green
-            if (n.status === 'Verified') color = '#0ff';
-            else if (n.status === 'Trusted') color = '#4caf50';
-            else if (n.status === 'Watched') color = '#ff9800';
-            else if (n.status === 'High Risk') color = '#ff5722';
-            else if (n.status === 'Quarantined') color = '#f44336';
-            else if (n.status === 'Blacklisted') color = '#8b0000';
-            
-            html += `<div class="lb-row" style="color:${color}">${i+1}. ${n.id} — ${Math.round(n.reputation)}</div>`;
-        });
-        document.getElementById('lbContent').innerHTML = html;
-    }
+  syncNodeSelect();
+  renderConsensus();
+  // Follow the server's partitions so the button is right after reloads/reconnects
+  if (Date.now() > splitPendingUntil && state.nodes.length) {
+    const split = groups(state.nodes).length > 1;
+    if (split || state.nodes.some((n) => n.partition_id != null)) isSplit = split;
+  }
+  renderSplit();
+  renderBoard();
+  renderTicker();
+  renderDetail();
+  renderOverlay();
+  syncControls();
+  topo.dirty = true;
+}
 
-    // Block Ticker
-    if (state.blocks && state.blocks.length > 0) {
-        let ticker = state.blocks.map(b => `[${b.hash} | ${b.proposer} | Tx:${b.tx_count} | ${b.consensus}]`).join('     ');
-        document.getElementById('ticker').innerText = ticker;
-    }
+let nodeSig = null;
+function syncNodeSelect() {
+  const sel = $('nodeSelect');
+  const ids = state.nodes.map((n) => key(n.id));
+  const sig = ids.join('\u0001');
+  if (sig === nodeSig) return;
+  const prev = sel.value;
+  sel.textContent = '';
+  for (const id of ids) sel.appendChild(new Option(id, id));
+  if (ids.includes(prev)) sel.value = prev;
+  nodeSig = sig;
+}
 
-    // Node detail panel
-    if (selectedNodeId && state.nodes) {
-        const n = state.nodes.find(x => x.id === selectedNodeId);
-        if (n) showDetail(n);
+function buildStatic() {
+  const wrap = $('consensusButtons');
+  for (const name of CONSENSUS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = name;
+    b.dataset.value = name;
+    b.dataset.cmd = '';
+    b.addEventListener('click', () => switchConsensus(name));
+    wrap.appendChild(b);
+  }
+  const fs = $('faultSelect');
+  for (const [value, label] of FAULTS) fs.appendChild(new Option(label, value));
+}
+
+function renderConsensus() {
+  const cur = String(state.consensus || '').toLowerCase();
+  for (const b of $('consensusButtons').children) b.classList.toggle('active', b.dataset.value.toLowerCase() === cur);
+}
+
+function renderSplit() {
+  const btn = $('splitBtn');
+  setText(btn, isSplit ? 'Merge Network' : 'Sever Network');
+  btn.classList.toggle('active', isSplit);
+}
+
+const rows = new Map();
+function renderBoard() {
+  const wrap = $('lbContent');
+  const rep = (n) => num(n.reputation) ?? -Infinity;
+  const sorted = [...state.nodes].sort((a, b) => rep(b) - rep(a) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+  const sel = selectedNodeId != null ? key(selectedNodeId) : null;
+  const live = new Set();
+  sorted.forEach((n, i) => {
+    const k = key(n.id);
+    live.add(k);
+    let row = rows.get(k);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'lb-row';
+      row.dataset.id = k;
+      row.append(document.createElement('i'), document.createElement('span'), document.createElement('b'));
+      rows.set(k, row);
     }
+    row.style.setProperty('--c', color(n.status));
+    row.title = n.status || '';
+    setText(row.children[1], n.id);
+    setText(row.children[2], num(n.reputation) == null ? '—' : Math.round(n.reputation));
+    row.classList.toggle('selected', k === sel);
+    if (wrap.children[i] !== row) wrap.insertBefore(row, wrap.children[i] || null);
+  });
+  for (const [k, row] of rows) if (!live.has(k)) { row.remove(); rows.delete(k); }
+}
+
+function renderTicker() {
+  const t = $('ticker');
+  const blocks = state.blocks.filter((b) => b && typeof b === 'object');
+  if (!blocks.length) { setText(t, 'Awaiting blocks'); return; }
+  const sig = blocks.map((b) => b.hash).join('|');
+  if (t.dataset.sig === sig) return;
+  t.dataset.sig = sig;
+  t.textContent = '';
+  for (const b of [...blocks].reverse()) {
+    const s = document.createElement('span');
+    s.textContent = `${String(b.hash ?? '—').slice(0, 8)}  ·  ${b.proposer ?? '—'}  ·  ${b.tx_count ?? 0} tx  ·  ${b.consensus ?? ''}`;
+    t.appendChild(s);
+  }
+}
+
+function renderDetail() {
+  const panel = $('nodeDetail');
+  panel.hidden = selectedNodeId == null;
+  if (selectedNodeId == null) return;
+  const n = index.get(key(selectedNodeId));
+  if (n) showDetail(n);
+  else { setText('detailTitle', selectedNodeId); setText('detailStatus', 'Offline'); $('detailStatus').style.color = ''; }
 }
 
 function showDetail(n) {
-    const panel = document.getElementById('nodeDetail');
-    panel.style.display = 'block';
-    document.getElementById('detailTitle').innerText = n.id;
-    document.getElementById('detailRep').innerText = n.reputation.toFixed(1);
-    document.getElementById('detailStatus').innerText = n.status;
-    document.getElementById('detailProfile').innerText = n.network_profile || "Unknown";
-    
-    let color = '#4caf50';
-    if (n.status === 'Verified') color = '#0ff';
-    else if (n.status === 'Trusted') color = '#4caf50';
-    else if (n.status === 'Watched') color = '#ff9800';
-    else if (n.status === 'High Risk') color = '#ff5722';
-    else if (n.status === 'Quarantined') color = '#f44336';
-    else if (n.status === 'Blacklisted') color = '#8b0000';
-    
-    document.getElementById('detailStatus').style.color = color;
-    document.getElementById('detailThreat').innerText = (n.ml_prob * 100).toFixed(1) + '%';
-
-    // ML Model Breakdown
-    if (n.ml_detail) {
-        document.getElementById('detailNN').innerText = ((n.ml_detail.nn_prob || 0) * 100).toFixed(1) + '%';
-        document.getElementById('detailAnomaly').innerText = ((n.ml_detail.anomaly_score || 0) * 100).toFixed(1) + '%';
-    }
-
-    if (n.ml_features) {
-        document.getElementById('detailFreq').innerText = (n.ml_features.msg_freq || 0).toFixed(1);
-        document.getElementById('detailVote').innerText = ((n.ml_features.vote_inconsistency || 0) * 100).toFixed(1) + '%';
-        document.getElementById('detailLat').innerText = (n.ml_features.latency || 0).toFixed(0) + ' ms';
-        document.getElementById('detailForks').innerText = (n.ml_features.fork_attempts || 0).toFixed(0);
-        document.getElementById('detailSilence').innerText = ((n.ml_features.silence_ratio || 0) * 100).toFixed(1) + '%';
-    }
+  $('nodeDetail').hidden = false;
+  setText('detailTitle', n.id);
+  setText('detailRep', fixed(n.reputation, 1));
+  setText('detailStatus', n.status || '—');
+  $('detailStatus').style.color = color(n.status);
+  setText('detailProfile', n.network_profile || 'Unknown');
+  setText('detailThreat', pct(n.ml_prob));
+  const d = n.ml_detail;
+  setText('detailNN', d ? pct(num(d.nn_prob) ?? 0) : '—');
+  setText('detailAnomaly', d ? pct(num(d.anomaly_score) ?? 0) : '—');
+  const f = n.ml_features;
+  setText('detailFreq', f ? fixed(num(f.msg_freq) ?? 0, 1) : '—');
+  setText('detailVote', f ? pct(num(f.vote_inconsistency) ?? 0) : '—');
+  setText('detailLat', f ? fixed(num(f.latency) ?? 0, 0, ' ms') : '—');
+  setText('detailForks', f ? fixed(num(f.fork_attempts) ?? 0, 0) : '—');
+  setText('detailSilence', f ? pct(num(f.silence_ratio) ?? 0) : '—');
 }
 
-// ── Online Training Commands ──
-function trainFalsePositive() {
-    if (selectedNodeId && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: 'report_false_positive', node_id: selectedNodeId }));
-    }
+function renderOverlay() {
+  const linked = isOpen();
+  setText('mapOverlay', !linked ? (hasState ? 'Disconnected, reconnecting…' : `Connecting to ${WS_URL}`) : hasState ? '' : 'Waiting for data');
 }
 
-function trainMissedAttack() {
-    if (selectedNodeId && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: 'report_missed_attack', node_id: selectedNodeId }));
-    }
+function syncControls() {
+  const open = isOpen();
+  for (const b of document.querySelectorAll('[data-cmd]')) b.disabled = !open;
+  const train = open && selectedNodeId != null && index.has(key(selectedNodeId));
+  $('fpBtn').disabled = !train;
+  $('maBtn').disabled = !train;
 }
 
-// ── Commands ──
-function switchConsensus(consensus) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: 'switch_consensus', consensus }));
-    }
+function selectNode(id) {
+  selectedNodeId = id;
+  if (id != null && [...$('nodeSelect').options].some((o) => o.value === key(id))) $('nodeSelect').value = key(id);
+  renderBoard();
+  renderDetail();
+  syncControls();
 }
 
-function injectFault() {
-    const nodeId = document.getElementById('nodeSelect').value;
-    const faultType = document.getElementById('faultSelect').value;
-    if (ws && ws.readyState === WebSocket.OPEN && nodeId) {
-        ws.send(JSON.stringify({ action: 'inject_fault', node_id: nodeId, fault_type: faultType }));
-    }
+/* ── Topology ── */
+const canvas = $('arena');
+const ctx = canvas.getContext('2d');
+const topo = { w: 0, h: 0, dpr: 1, pos: new Map(), groups: [], split: false, dirty: true };
+let hoverKey = null;
+let mouse = null;
+let lastFrame = 0;
+
+function resize() {
+  const r = $('mapPanel').getBoundingClientRect();
+  topo.w = Math.max(1, Math.floor(r.width));
+  topo.h = Math.max(1, Math.floor(r.height));
+  topo.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(topo.w * topo.dpr);
+  canvas.height = Math.round(topo.h * topo.dpr);
+  topo.dirty = true;
 }
 
-function toggleSplit() {
-    isSplit = !isSplit;
-    const btn = document.getElementById('splitBtn');
-    if (isSplit) {
-        sendAction('split_network');
-        btn.innerText = 'Merge Network';
-        btn.classList.add('active');
-    } else {
-        sendAction('merge_network');
-        btn.innerText = 'Sever Network';
-        btn.classList.remove('active');
-    }
+function layout() {
+  const parts = groups(state.nodes);
+  const P = Math.max(1, parts.length);
+  topo.split = parts.length > 1;
+  const padX = 32, padTop = topo.split ? 72 : 40, padBottom = 40;
+  const cellW = (topo.w - padX * 2) / P;
+  const cellH = Math.max(40, topo.h - padTop - padBottom);
+  const seen = new Set();
+  topo.groups = parts.map((nodes, gi) => {
+    const N = nodes.length;
+    const cx = padX + cellW * (gi + 0.5), cy = padTop + cellH / 2;
+    const maxR = Math.max(20, Math.min(cellW / 2 - 70, cellH / 2 - 40));
+    const radius = N <= 1 ? 0 : Math.min(maxR, Math.max(60, N * 20));
+    const spacing = N <= 1 ? 999 : (TAU * radius) / N;
+    const r = clamp(spacing * 0.16, 4, 10);
+    nodes.forEach((n, i) => {
+      const k = key(n.id);
+      seen.add(k);
+      const ang = N <= 1 ? -Math.PI / 2 : (i / N) * TAU - Math.PI / 2;
+      const tx = cx + Math.cos(ang) * radius, ty = cy + Math.sin(ang) * radius;
+      const p = topo.pos.get(k) || { x: tx, y: ty, r };
+      Object.assign(p, { tx, ty, tr: r, ang, spacing });
+      topo.pos.set(k, p);
+    });
+    return { cx, cy, radius, x0: padX + cellW * gi };
+  });
+  for (const k of topo.pos.keys()) if (!seen.has(k)) topo.pos.delete(k);
+  topo.dirty = false;
 }
 
-function sendAction(action) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action }));
-    }
+function frame(ts) {
+  requestAnimationFrame(frame);
+  const dt = lastFrame ? Math.min(0.1, (ts - lastFrame) / 1000) : 0.016;
+  lastFrame = ts;
+  if (topo.dirty) layout();
+  const e = 1 - Math.exp(-dt * 8);
+  for (const p of topo.pos.values()) { p.x += (p.tx - p.x) * e; p.y += (p.ty - p.y) * e; p.r += (p.tr - p.r) * e; }
+  if (mouse) { hoverKey = hit(mouse.x, mouse.y); canvas.classList.toggle('hovering', hoverKey != null); }
+
+  ctx.setTransform(topo.dpr, 0, 0, topo.dpr, 0, 0);
+  ctx.clearRect(0, 0, topo.w, topo.h);
+  ctx.globalAlpha = isOpen() || !hasState ? 1 : 0.35;
+  drawPartitions();
+  drawMessages(Date.now());
+  drawNodes();
+  ctx.globalAlpha = 1;
 }
 
-// ── Canvas Rendering ──
-function render() {
-    ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, width, height);
-
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const baseRadius = Math.min(width, height) * 0.3;
-
-    const nodePositions = {};
-
-    if (state.nodes && state.nodes.length > 0) {
-        // Check if partitioned
-        const partitions = {};
-        state.nodes.forEach(n => {
-            const pid = n.partition_id || 0;
-            if (!partitions[pid]) partitions[pid] = [];
-            partitions[pid].push(n);
-        });
-        const partitionIds = Object.keys(partitions);
-        const isPartitioned = partitionIds.length > 1;
-
-        partitionIds.forEach((pid, pIdx) => {
-            const pNodes = partitions[pid];
-            const angleStep = (Math.PI * 2) / pNodes.length;
-            let offsetX = 0;
-            let r = baseRadius;
-
-            if (isPartitioned) {
-                r = baseRadius * 0.6;
-                offsetX = pIdx === 0 ? -r * 1.2 : r * 1.2;
-            }
-
-            // Adjust radius for node count
-            r = Math.max(r, pNodes.length * 8);
-
-            pNodes.forEach((node, i) => {
-                const angle = i * angleStep - Math.PI / 2;
-                const x = centerX + offsetX + Math.cos(angle) * r;
-                const y = centerY + Math.sin(angle) * r;
-                nodePositions[node.id] = { x, y };
-
-                // Node circle
-                ctx.beginPath();
-                ctx.arc(x, y, 18, 0, Math.PI * 2);
-
-                // Color coding
-                if (node.status === 'Verified') {
-                    ctx.fillStyle = '#0ff'; // Cyan
-                } else if (node.status === 'Trusted') {
-                    ctx.fillStyle = '#4caf50'; // Green
-                } else if (node.status === 'Watched') {
-                    ctx.fillStyle = '#ff9800'; // Orange
-                } else if (node.status === 'High Risk') {
-                    ctx.fillStyle = '#ff5722'; // Deep Orange
-                } else if (node.status === 'Quarantined') {
-                    ctx.fillStyle = '#f44336'; // Red
-                } else if (node.status === 'Blacklisted') {
-                    ctx.fillStyle = '#8b0000'; // Dark Red
-                } else {
-                    ctx.fillStyle = '#4caf50'; // Default Green
-                }
-                ctx.fill();
-
-                if (node.is_byzantine) {
-                    ctx.lineWidth = 3;
-                    if (node.fault_type === 'stealth') {
-                        if (node.reputation >= 55) {
-                            // Actively attacking
-                            ctx.strokeStyle = `rgba(255, 0, 0, ${0.5 + Math.sin(Date.now()/100)*0.5})`; // Fast red pulse
-                            ctx.fillStyle = '#ff4444';
-                            ctx.font = 'bold 10px monospace';
-                            ctx.fillText("⚔️ ATTACKING", x, y - 40);
-                        } else {
-                            // Hiding / acting innocent
-                            ctx.strokeStyle = `rgba(100, 100, 255, ${0.3 + Math.sin(Date.now()/500)*0.3})`; // Slow blue pulse
-                            ctx.fillStyle = '#8888ff';
-                            ctx.font = 'bold 10px monospace';
-                            ctx.fillText("👻 HIDING", x, y - 40);
-                        }
-                    } else {
-                        // Normal malicious/offline
-                        ctx.strokeStyle = `rgba(255,0,0,${0.5 + Math.sin(Date.now()/200)*0.5})`;
-                    }
-                } else {
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = '#fff';
-                }
-                ctx.stroke();
-
-                // Label
-                ctx.fillStyle = '#fff';
-                ctx.font = '11px monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText(node.id, x, y - 26);
-                ctx.fillText(`Rep: ${Math.round(node.reputation)}`, x, y + 32);
-
-                // ML threat bar
-                const threatW = 30;
-                const threatH = 4;
-                const threat = node.ml_prob || 0;
-                ctx.fillStyle = '#333';
-                ctx.fillRect(x - threatW/2, y + 36, threatW, threatH);
-                ctx.fillStyle = threat > 0.7 ? '#f33' : (threat > 0.4 ? '#ff0' : '#0f0');
-                ctx.fillRect(x - threatW/2, y + 36, threatW * threat, threatH);
-            });
-        });
-
-        // Draw partition divider
-        if (isPartitioned) {
-            ctx.beginPath();
-            ctx.setLineDash([10, 10]);
-            ctx.moveTo(centerX, 50);
-            ctx.lineTo(centerX, height - 50);
-            ctx.strokeStyle = '#f33';
-            ctx.lineWidth = 2;
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            ctx.fillStyle = '#f33';
-            ctx.font = '14px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText('NETWORK SEVERED', centerX, 40);
-        }
-
-        // Draw messages
-        if (state.messages) {
-            state.messages.forEach(msg => {
-                const p1 = nodePositions[msg.from];
-                const p2 = nodePositions[msg.to];
-                if (p1 && p2) {
-                    ctx.beginPath();
-                    ctx.moveTo(p1.x, p1.y);
-                    ctx.lineTo(p2.x, p2.y);
-                    ctx.strokeStyle = 'rgba(0,255,255,0.3)';
-                    ctx.lineWidth = 1;
-                    ctx.stroke();
-
-                    const progress = (Date.now() % 800) / 800;
-                    const mx = p1.x + (p2.x - p1.x) * progress;
-                    const my = p1.y + (p2.y - p1.y) * progress;
-                    ctx.beginPath();
-                    ctx.arc(mx, my, 3, 0, Math.PI * 2);
-                    ctx.fillStyle = '#0ff';
-                    ctx.fill();
-                }
-            });
-        }
-    }
-
-    requestAnimationFrame(render);
+function drawPartitions() {
+  if (!topo.split) return;
+  ctx.strokeStyle = '#19191b';
+  ctx.lineWidth = 1;
+  for (const g of topo.groups.slice(1)) {
+    const x = Math.round(g.x0) + 0.5;
+    ctx.beginPath(); ctx.moveTo(x, 56); ctx.lineTo(x, topo.h - 24); ctx.stroke();
+  }
+  ctx.font = `400 12.5px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#dd6a6a';
+  ctx.fillText('Network severed', topo.w / 2, 28);
 }
 
-// Click on canvas to select a node
+function drawMessages(now) {
+  const sel = selectedNodeId != null ? key(selectedNodeId) : null;
+  ctx.lineWidth = 1;
+  for (const m of state.messages) {
+    if (!m) continue;
+    const fk = key(m.from), tk = key(m.to);
+    const a = topo.pos.get(fk), b = topo.pos.get(tk);
+    if (!a || !b || a === b) continue;
+    const hot = sel != null && (fk === sel || tk === sel);
+    const alpha = sel == null ? 0.05 : hot ? 0.2 : 0.02;
+    ctx.strokeStyle = `rgba(237,237,238,${alpha})`;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    const t = isOpen() ? ((now + (hash(fk + tk) % 800)) % 800) / 800 : 0.5;
+    ctx.fillStyle = `rgba(237,237,238,${alpha * 6})`;
+    ctx.beginPath(); ctx.arc(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 1.4, 0, TAU); ctx.fill();
+  }
+}
+
+function drawNodes() {
+  const sel = selectedNodeId != null ? key(selectedNodeId) : null;
+  for (const n of state.nodes) {
+    const k = key(n.id);
+    const p = topo.pos.get(k);
+    if (!p) continue;
+    const { x, y, r } = p;
+    const rep = num(n.reputation) ?? 0;
+    const threat = clamp(num(n.ml_prob) ?? 0, 0, 1);
+
+    // ML threat: thin arc
+    if (threat > 0.01) {
+      ctx.beginPath(); ctx.arc(x, y, r + 4, -Math.PI / 2, -Math.PI / 2 + threat * TAU);
+      ctx.strokeStyle = threatColor(threat); ctx.lineWidth = 1.5; ctx.stroke();
+    }
+    // Injected fault ring (stealth: blue while hiding, red while attacking)
+    let tag = null;
+    if (n.is_byzantine) {
+      let ring = '#e06464';
+      if (n.fault_type === 'stealth') {
+        const attacking = rep >= STEALTH_ATTACK_REP;
+        tag = attacking ? 'attacking' : 'hiding';
+        if (!attacking) ring = '#8c93cf';
+      }
+      ctx.beginPath(); ctx.arc(x, y, r + 8, 0, TAU);
+      ctx.strokeStyle = ring; ctx.lineWidth = 1; ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+    ctx.fillStyle = color(n.status); ctx.fill();
+    if (k === sel) {
+      ctx.beginPath(); ctx.arc(x, y, r + (n.is_byzantine ? 12 : 8), 0, TAU);
+      ctx.strokeStyle = '#ededee'; ctx.lineWidth = 1; ctx.stroke();
+    }
+
+    // Label outward from the ring
+    const focus = k === sel || k === hoverKey;
+    if (p.spacing < 34 && !focus && !tag) continue;
+    const ux = Math.cos(p.ang), uy = Math.sin(p.ang);
+    const off = r + (n.is_byzantine ? 14 : 10);
+    const ax = x + ux * off, ay = y + uy * off;
+    ctx.textAlign = ux > 0.3 ? 'left' : ux < -0.3 ? 'right' : 'center';
+    ctx.textBaseline = 'middle';
+    const lines = [];
+    if (tag) lines.push([tag, n.fault_type === 'stealth' && rep < STEALTH_ATTACK_REP ? '#8c93cf' : '#e06464']);
+    if (p.spacing >= 34 || focus) lines.push([String(n.id), focus ? '#ffffff' : '#a8a8ad']);
+    if (p.spacing >= 46 || focus) lines.push([String(Math.round(rep)), '#4e4e53']);
+    const top = uy < -0.3 ? ay - lines.length * 14 : uy > 0.3 ? ay : ay - (lines.length * 14) / 2;
+    ctx.font = `400 11.5px ${FONT}`;
+    lines.forEach(([text, c], i) => { ctx.fillStyle = c; ctx.fillText(text, ax, top + i * 14 + 7); });
+  }
+}
+
+function hit(mx, my) {
+  let best = null, bd = Infinity;
+  for (const [k, p] of topo.pos) {
+    const d = Math.hypot(mx - p.x, my - p.y);
+    if (d < Math.max(p.r + 8, 12) && d < bd) { best = k; bd = d; }
+  }
+  return best;
+}
+
+function local(e) { const r = canvas.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
+
+/* ── Wiring ── */
+canvas.addEventListener('mousemove', (e) => { mouse = local(e); });
+canvas.addEventListener('mouseleave', () => { mouse = null; hoverKey = null; canvas.classList.remove('hovering'); });
 canvas.addEventListener('click', (e) => {
-    if (!state.nodes) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-
-    // Check which node was clicked (simple distance check)
-    for (const node of state.nodes) {
-        const centerX = width / 2;
-        const centerY = height / 2;
-        const baseRadius = Math.min(width, height) * 0.3;
-
-        // Recompute positions (same logic as render)
-        const partitions = {};
-        state.nodes.forEach(n => {
-            const pid = n.partition_id || 0;
-            if (!partitions[pid]) partitions[pid] = [];
-            partitions[pid].push(n);
-        });
-        const partitionIds = Object.keys(partitions);
-        const isPartitioned = partitionIds.length > 1;
-
-        for (const pid of partitionIds) {
-            const pNodes = partitions[pid];
-            const pIdx = partitionIds.indexOf(pid);
-            const angleStep = (Math.PI * 2) / pNodes.length;
-            let offsetX = 0, r = baseRadius;
-            if (isPartitioned) { r = baseRadius * 0.6; offsetX = pIdx === 0 ? -r*1.2 : r*1.2; }
-            r = Math.max(r, pNodes.length * 8);
-
-            pNodes.forEach((n, i) => {
-                const angle = i * angleStep - Math.PI / 2;
-                const x = centerX + offsetX + Math.cos(angle) * r;
-                const y = centerY + Math.sin(angle) * r;
-                const dist = Math.sqrt((mx-x)**2 + (my-y)**2);
-                if (dist < 20) {
-                    selectedNodeId = n.id;
-                    showDetail(n);
-                }
-            });
-        }
-        break; // Only need one pass
-    }
+  const { x, y } = local(e);
+  const n = index.get(hit(x, y));
+  selectNode(n ? n.id : null);
 });
+$('lbContent').addEventListener('click', (e) => {
+  const row = e.target.closest('.lb-row');
+  const n = row && index.get(row.dataset.id);
+  if (n) selectNode(n.id);
+});
+$('detailClose').addEventListener('click', () => selectNode(null));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') selectNode(null); });
+$('injectBtn').addEventListener('click', injectFault);
+$('splitBtn').addEventListener('click', toggleSplit);
+$('addNodeBtn').addEventListener('click', () => sendAction('add_node'));
+$('removeNodeBtn').addEventListener('click', () => sendAction('remove_node'));
+$('fpBtn').addEventListener('click', trainFalsePositive);
+$('maBtn').addEventListener('click', trainMissedAttack);
 
+new ResizeObserver(resize).observe($('mapPanel'));
+window.addEventListener('resize', resize);
+
+buildStatic();
+resize();
+syncControls();
 connect();
-render();
+requestAnimationFrame(frame);
