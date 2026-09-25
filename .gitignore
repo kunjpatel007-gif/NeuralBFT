@@ -73,3 +73,7 @@ desktop.ini
 # Data files
 *.npy
 *.pt
+
+# Build Folders
+unity_desktop_build/
+unity_web_build/

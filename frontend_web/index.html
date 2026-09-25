@@ -49,8 +49,20 @@
     </section>
   </aside>
 
-  <div class="map" id="mapPanel">
-    <canvas id="arena"></canvas>
+  <div class="map" id="mapPanel" style="position: relative;">
+    <!-- Old 2D Canvas (hidden in favor of 3D) -->
+    <canvas id="arena" style="display: none;"></canvas>
+    
+    <!-- New Unity 3D WebGL Canvas -->
+    <canvas id="unity-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
+    
+    <!-- Custom Loading Bar for Unity -->
+    <div id="unity-loading-bar" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;">
+      <div id="unity-progress-bar-empty" style="width: 200px; height: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; overflow: hidden;">
+        <div id="unity-progress-bar-full" style="width: 0%; height: 100%; background: #00ffcc; transition: width 0.2s;"></div>
+      </div>
+    </div>
+
     <div class="overlay" id="mapOverlay"></div>
   </div>
 
@@ -93,6 +105,30 @@
 
 <footer class="ticker" id="ticker">Awaiting blocks</footer>
 
+<script src="Build/unity_web_build.loader.js"></script>
+<script>
+  if (typeof createUnityInstance !== 'undefined') {
+      var canvas = document.querySelector("#unity-canvas");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+
+      createUnityInstance(canvas, {
+        dataUrl: "Build/unity_web_build.data",
+        frameworkUrl: "Build/unity_web_build.framework.js",
+        codeUrl: "Build/unity_web_build.wasm",
+        streamingAssetsUrl: "StreamingAssets",
+        companyName: "DefaultCompany",
+        productName: "NeuralBFT",
+        productVersion: "1.0",
+      }, (progress) => {
+        progressBarFull.style.width = 100 * progress + "%";
+      }).then((unityInstance) => {
+        loadingBar.style.display = "none";
+      }).catch((message) => {
+        alert("Unity Error: " + message);
+      });
+  }
+</script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -126,8 +126,9 @@ public class BackgroundManager : MonoBehaviour
 
         // Apply a glowing particle material
         ParticleSystemRenderer psr = psObj.GetComponent<ParticleSystemRenderer>();
+        // If URP shader is stripped from the build, fallback safely to Sprites/Default
         Shader particleShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-        if (particleShader == null) particleShader = Shader.Find("Particles/Standard Unlit");
+        if (particleShader == null) particleShader = Shader.Find("Sprites/Default");
         
         if (particleShader != null)
         {

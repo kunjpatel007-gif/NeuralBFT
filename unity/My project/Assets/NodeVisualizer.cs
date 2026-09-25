@@ -130,7 +130,9 @@ public class NodeVisualizer : MonoBehaviour
                 if (lr.material == null || lr.material.shader.name != "Universal Render Pipeline/Lit")
                 {
                     Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
-                    if (litShader == null) litShader = Shader.Find("Standard");
+                    // DO NOT fallback to "Standard" because it will render as Magenta in URP. 
+                    // If URP/Lit is somehow stripped, we will just use Sprites/Default to prevent a visual crash.
+                    if (litShader == null) litShader = Shader.Find("Sprites/Default");
                     lr.material = new Material(litShader);
                 }
                 

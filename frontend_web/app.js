@@ -1,6 +1,6 @@
 'use strict';
 
-const WS_URL = new URLSearchParams(location.search).get('ws') || 'ws://localhost:8765';
+const WS_URL = new URLSearchParams(location.search).get('ws') || 'wss://neuralbft-backend-443293282760.asia-south1.run.app';
 
 const CONSENSUS = ['PoW', 'PoS', 'DPoS', 'PBFT'];
 const FAULTS = [

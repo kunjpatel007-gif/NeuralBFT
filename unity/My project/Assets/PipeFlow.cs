@@ -24,8 +24,8 @@ public class PipeFlow : MonoBehaviour
             }
 
             // Must use a particle or unlit shader that supports texture tiling/offset
+            // If the URP shader is stripped from the build, fallback directly to Sprites/Default
             Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-            if (shader == null) shader = Shader.Find("Unlit/Transparent"); // fallback
             if (shader == null) shader = Shader.Find("Sprites/Default");
             
             mat = new Material(shader);

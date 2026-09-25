@@ -45,7 +45,7 @@ public class MetricsData
 public class NetworkManager : MonoBehaviour
 {
     [Header("WebSocket")]
-    public string serverUrl = "ws://localhost:8765";
+    public string serverUrl = "wss://neuralbft-backend-443293282760.asia-south1.run.app";
 
     [Header("Prefabs")]
     public GameObject messagePrefab;
