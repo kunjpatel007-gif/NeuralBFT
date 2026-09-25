@@ -108,14 +108,14 @@
 <script src="Build/unity_web_build.loader.js"></script>
 <script>
   if (typeof createUnityInstance !== 'undefined') {
-      var canvas = document.querySelector("#unity-canvas");
+      var unityCanvas = document.querySelector("#unity-canvas");
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
       var loadingBar = document.querySelector("#unity-loading-bar");
 
-      createUnityInstance(canvas, {
-        dataUrl: "Build/unity_web_build.data",
-        frameworkUrl: "Build/unity_web_build.framework.js",
-        codeUrl: "Build/unity_web_build.wasm",
+      createUnityInstance(unityCanvas, {
+        dataUrl: "Build/unity_web_build.data.br",
+        frameworkUrl: "Build/unity_web_build.framework.js.br",
+        codeUrl: "Build/unity_web_build.wasm.br",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "NeuralBFT",
@@ -123,6 +123,7 @@
       }, (progress) => {
         progressBarFull.style.width = 100 * progress + "%";
       }).then((unityInstance) => {
+        window.unityInstance = unityInstance;
         loadingBar.style.display = "none";
       }).catch((message) => {
         alert("Unity Error: " + message);

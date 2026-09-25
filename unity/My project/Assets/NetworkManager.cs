@@ -67,6 +67,9 @@ public class NetworkManager : MonoBehaviour
 
     async void Start()
     {
+        // Force the GameObject name so JS SendMessage can definitively find it
+        gameObject.name = "NetworkManager";
+
         // Automatically inject the premium background system
         if (gameObject.GetComponent<BackgroundManager>() == null)
         {
@@ -74,7 +77,26 @@ public class NetworkManager : MonoBehaviour
         }
 
         _cts = new CancellationTokenSource();
+        
+#if !UNITY_WEBGL || UNITY_EDITOR
         await ConnectWebSocket();
+#else
+        Debug.Log("[NetworkManager] Running in WebGL. Awaiting state from browser via JS SendMessage...");
+#endif
+    }
+
+    // Called by frontend_web/app.js via SendMessage
+    public void OnWebStateReceived(string json)
+    {
+        try
+        {
+            _latestState = JsonConvert.DeserializeObject<ServerState>(json);
+            _hasNewState = true;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"[NetworkManager] Failed to parse JSON from browser: {ex.Message}");
+        }
     }
 
     async Task ConnectWebSocket()

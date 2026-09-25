@@ -78,6 +78,9 @@ function setLink(s) {
 }
 
 function receive(raw) {
+  if (window.unityInstance) {
+    window.unityInstance.SendMessage('NetworkManager', 'OnWebStateReceived', raw);
+  }
   let data;
   try { data = JSON.parse(raw); } catch (e) { console.error('Failed to parse state:', e); return; }
   if (!data || typeof data !== 'object' || Array.isArray(data)) return;
