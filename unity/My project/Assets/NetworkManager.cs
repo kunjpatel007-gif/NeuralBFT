@@ -289,8 +289,8 @@ public class NetworkManager : MonoBehaviour
         lr.positionCount = 2;
         lr.SetPosition(0, startPos);
         lr.SetPosition(1, endPos);
-        lr.startWidth = 0.015f; // Super skinny
-        lr.endWidth = 0.015f;
+        lr.startWidth = 0.04f; // Thick enough to survive zooming out
+        lr.endWidth = 0.04f;
         lr.material = new Material(Shader.Find("Sprites/Default")); // Unlit standard material
         lr.material.color = new Color(msgColor.r, msgColor.g, msgColor.b, 0.06f); // 6% alpha (60% of previous 10%)
         

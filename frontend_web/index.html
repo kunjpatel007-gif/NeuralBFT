@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="exitImmersiveHint">Press ESC to exit Immersive Mode</div>
 
 <header class="top">
   <span class="name">Consensus Arena</span>
@@ -23,6 +24,8 @@
 <main class="layout">
 
   <aside class="controls">
+    <button id="immersiveBtn" type="button">Enter Immersive 3D Mode</button>
+    
     <section>
       <h2>Consensus</h2>
       <div class="seg" id="consensusButtons"></div>
@@ -120,6 +123,7 @@
         companyName: "DefaultCompany",
         productName: "NeuralBFT",
         productVersion: "1.0",
+        devicePixelRatio: window.devicePixelRatio,
       }, (progress) => {
         progressBarFull.style.width = 100 * progress + "%";
       }).then((unityInstance) => {
