@@ -124,3 +124,23 @@ option { background: var(--field); }
   .map { height: 60vh; order: -1; }
   .controls, .side { padding: 24px 20px; }
 }
+
+
+/* Canvas Toggling */
+#arena { display: block; }
+#unity-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+
+/* Immersive Mode */
+body.immersive .top { display: none; }
+body.immersive .controls { display: none; }
+body.immersive .side { display: none; }
+body.immersive .msg-log { display: none; }
+body.immersive .layout { grid-template-columns: 1fr; padding: 0; margin: 0; }
+body.immersive .map { height: 100vh; width: 100vw; position: fixed; top: 0; left: 0; z-index: 9999; border: none; }
+body.immersive #arena { display: none !important; }
+body.immersive #unity-wrapper { visibility: visible; opacity: 1; pointer-events: auto; }
+
+#immersiveBtn { background: var(--hover); margin-bottom: 24px; border: 1px solid var(--border); font-weight: 500; }
+#immersiveBtn:hover { border-color: var(--text); }
+#exitImmersiveHint { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: 8px 16px; border-radius: 20px; z-index: 10000; font-size: 14px; display: none; opacity: 0; transition: opacity 0.5s; pointer-events: none; }
+body.immersive #exitImmersiveHint { display: block; opacity: 1; }

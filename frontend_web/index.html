@@ -24,7 +24,7 @@
 <main class="layout">
 
   <aside class="controls">
-    <button id="immersiveBtn" type="button">Enter Immersive 3D Mode</button>
+    <a id="immersiveBtn" href="3d.html" target="_blank" style="display: block; text-align: center; line-height: 34px; text-decoration: none;">Enter Immersive 3D Mode</a>
     
     <section>
       <h2>Consensus</h2>
@@ -53,18 +53,10 @@
   </aside>
 
   <div class="map" id="mapPanel" style="position: relative;">
-    <!-- Old 2D Canvas (hidden in favor of 3D) -->
-    <canvas id="arena" style="display: none;"></canvas>
+    <!-- Old 2D Canvas -->
+    <canvas id="arena"></canvas>
     
-    <!-- New Unity 3D WebGL Canvas -->
-    <canvas id="unity-canvas" style="width: 100%; height: 100%; display: block;"></canvas>
-    
-    <!-- Custom Loading Bar for Unity -->
-    <div id="unity-loading-bar" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10;">
-      <div id="unity-progress-bar-empty" style="width: 200px; height: 10px; background: rgba(255, 255, 255, 0.1); border-radius: 5px; overflow: hidden;">
-        <div id="unity-progress-bar-full" style="width: 0%; height: 100%; background: #00ffcc; transition: width 0.2s;"></div>
-      </div>
-    </div>
+
 
     <div class="overlay" id="mapOverlay"></div>
   </div>
@@ -108,32 +100,6 @@
 
 <footer class="ticker" id="ticker">Awaiting blocks</footer>
 
-<script src="Build/unity_web_build.loader.js"></script>
-<script>
-  if (typeof createUnityInstance !== 'undefined') {
-      var unityCanvas = document.querySelector("#unity-canvas");
-      var progressBarFull = document.querySelector("#unity-progress-bar-full");
-      var loadingBar = document.querySelector("#unity-loading-bar");
-
-      createUnityInstance(unityCanvas, {
-        dataUrl: "Build/unity_web_build.data.br",
-        frameworkUrl: "Build/unity_web_build.framework.js.br",
-        codeUrl: "Build/unity_web_build.wasm.br",
-        streamingAssetsUrl: "StreamingAssets",
-        companyName: "DefaultCompany",
-        productName: "NeuralBFT",
-        productVersion: "1.0",
-        devicePixelRatio: window.devicePixelRatio,
-      }, (progress) => {
-        progressBarFull.style.width = 100 * progress + "%";
-      }).then((unityInstance) => {
-        window.unityInstance = unityInstance;
-        loadingBar.style.display = "none";
-      }).catch((message) => {
-        alert("Unity Error: " + message);
-      });
-  }
-</script>
 <script src="app.js"></script>
 </body>
 </html>
