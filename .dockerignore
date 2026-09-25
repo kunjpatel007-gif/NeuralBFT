@@ -1,0 +1,7 @@
+unity/
+frontend_web/
+.git/
+.gitignore
+*.md
+__pycache__/
+*.pyc

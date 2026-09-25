@@ -155,9 +155,10 @@ async def main():
     network.active_consensus = PBFTMechanism()
     
     # 6. Start StateServer
-    server = StateServer(host='0.0.0.0', port=8765)
+    port = int(os.environ.get("PORT", 8765))
+    server = StateServer(host='0.0.0.0', port=port)
     await server.start()
-    logging.info("WebSocket server started on ws://0.0.0.0:8765")
+    logging.info(f"WebSocket server started on ws://0.0.0.0:{port}")
     
     # 7. Main loop:
     try:
