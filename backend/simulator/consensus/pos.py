@@ -26,11 +26,9 @@ class PoSMechanism(BaseConsensus):
             
         proposer = random.choices(valid_nodes, weights=weights, k=1)[0]
         
-        valid_receivers = [n for n in network.nodes if n.status != 'Quarantined']
-        
         # Byzantine behavior: send conflicting blocks
         if proposer.is_byzantine:
-            for node in valid_receivers:
+            for node in network.nodes:
                 if node.id != proposer.id:
                     msg1 = Message(
                         id=str(uuid.uuid4()),
@@ -51,7 +49,7 @@ class PoSMechanism(BaseConsensus):
                     network.add_message(msg1)
                     network.add_message(msg2)
         else:
-            for node in valid_receivers:
+            for node in network.nodes:
                 if node.id != proposer.id:
                     msg = Message(
                         id=str(uuid.uuid4()),

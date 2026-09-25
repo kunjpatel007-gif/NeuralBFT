@@ -21,7 +21,7 @@ class PBFTMechanism(BaseConsensus):
         leader = valid_nodes[0]
         
         # Phase 1: Pre-prepare
-        for node in valid_nodes:
+        for node in network.nodes:
             if node.id != leader.id:
                 if leader.is_byzantine and random.random() < 0.3:
                     continue # delay/silence
@@ -39,7 +39,7 @@ class PBFTMechanism(BaseConsensus):
         for sender in valid_nodes:
             if sender.id == leader.id:
                 continue
-            for receiver in valid_nodes:
+            for receiver in network.nodes:
                 if sender.id != receiver.id:
                     msg = Message(
                         id=str(uuid.uuid4()),
@@ -53,7 +53,7 @@ class PBFTMechanism(BaseConsensus):
                     
         # Phase 3: Commit
         for sender in valid_nodes:
-            for receiver in valid_nodes:
+            for receiver in network.nodes:
                 if sender.id != receiver.id:
                     msg = Message(
                         id=str(uuid.uuid4()),
