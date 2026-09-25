@@ -372,13 +372,39 @@ function drawMessages(now) {
     const fk = key(m.from), tk = key(m.to);
     const a = topo.pos.get(fk), b = topo.pos.get(tk);
     if (!a || !b || a === b) continue;
+    
+    const sender = state.nodes.find(n => n.id === m.from);
+    const receiver = state.nodes.find(n => n.id === m.to);
+    
+    // Front-end rejection logic based strictly on status
+    const isSenderBad = sender && (sender.status === 'Quarantined' || sender.status === 'Blacklisted');
+    const isReceiverGood = receiver && (receiver.status !== 'Quarantined' && receiver.status !== 'Blacklisted');
+    const isRejected = isSenderBad && isReceiverGood;
+    
     const hot = sel != null && (fk === sel || tk === sel);
     const alpha = sel == null ? 0.05 : hot ? 0.2 : 0.02;
-    ctx.strokeStyle = `rgba(237,237,238,${alpha})`;
+    
+    const lineColor = isRejected ? `rgba(143, 61, 71, ${alpha * 2})` : `rgba(237,237,238,${alpha})`;
+    ctx.strokeStyle = lineColor;
     ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    
     const t = isOpen() ? ((now + (hash(fk + tk) % 800)) % 800) / 800 : 0.5;
-    ctx.fillStyle = `rgba(237,237,238,${alpha * 6})`;
-    ctx.beginPath(); ctx.arc(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 1.4, 0, TAU); ctx.fill();
+    
+    if (isRejected && t > 0.8) {
+      // Shield impact animation
+      const ease = (t - 0.8) / 0.2; // scales from 0.0 to 1.0 at the end of the line
+      const pulseR = (b.r || 10) + 4 + (ease * 8);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, pulseR, 0, TAU);
+      ctx.strokeStyle = `rgba(143, 61, 71, ${Math.max(0, 1 - ease)})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // Normal moving dot (maroon if rejected, white if accepted)
+      const dotColor = isRejected ? `rgba(143, 61, 71, ${alpha * 15})` : `rgba(237,237,238,${alpha * 6})`;
+      ctx.fillStyle = dotColor;
+      ctx.beginPath(); ctx.arc(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 1.4, 0, TAU); ctx.fill();
+    }
   }
 }
 
