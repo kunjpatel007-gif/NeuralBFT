@@ -39,7 +39,8 @@ class DPoSMechanism(BaseConsensus):
         proposer = self.delegates[self.delegate_index]
         self.delegate_index = (self.delegate_index + 1) % len(self.delegates)
         
-        for node in network.nodes:
+        valid_receivers = [n for n in network.nodes if n.status != 'Quarantined']
+        for node in valid_receivers:
             if node.id != proposer.id:
                 msg = Message(
                     id=str(uuid.uuid4()),

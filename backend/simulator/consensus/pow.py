@@ -28,7 +28,8 @@ class PoWMechanism(BaseConsensus):
                     
         if winner:
             block_produced = True
-            for node in network.nodes:
+            valid_receivers = [n for n in network.nodes if n.status != 'Quarantined']
+            for node in valid_receivers:
                 if node.id != winner.id:
                     msg = Message(
                         id=str(uuid.uuid4()),
