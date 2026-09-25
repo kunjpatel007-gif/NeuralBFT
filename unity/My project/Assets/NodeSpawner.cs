@@ -76,60 +76,74 @@ public class NodeSpawner : MonoBehaviour
 
     /// <summary>
     /// Replaces the rough ProBuilder mesh on a node with an ultra-sleek, 
-    /// hard-sci-fi Icosahedron (20-sided geometric sphere).
+    /// multi-layered kinetic structure: solid glowing core + rotating Dyson rings.
     /// </summary>
     void SmoothifyMesh(GameObject node)
     {
         MeshFilter[] meshFilters = node.GetComponentsInChildren<MeshFilter>(true);
         if (meshFilters.Length == 0) return;
 
-        // Generate an elongated Monolith, scaled down to 75% of its original size (1.2 -> 0.9)
-        Mesh cyberCoreMesh = CreateSleekCyberCore(0.9f, 1.8f);
-
+        // The Inner Solid Core (Perfect geometric sphere, scaled down tightly)
+        Mesh innerCoreMesh = CreateSleekCyberCore(0.35f, 1.0f);
         foreach (var mf in meshFilters)
         {
-            mf.sharedMesh = cyberCoreMesh;
+            mf.sharedMesh = innerCoreMesh;
         }
 
-        AddGlowingEdges(node, cyberCoreMesh);
-
+        // Clean up old colliders
         var oldColliders = node.GetComponentsInChildren<Collider>(true);
         foreach (var col in oldColliders) Destroy(col);
         
-        // Add a perfectly sized BoxCollider to wrap it, scaled down to 75%
+        // Add a perfectly sized BoxCollider based on the full outer size
         BoxCollider boxCol = node.AddComponent<BoxCollider>();
-        boxCol.size = new Vector3(1.8f, 3.3f, 1.8f);
-    }
+        boxCol.size = new Vector3(1.8f, 1.8f, 1.8f);
 
-    /// <summary>
-    /// Outlines the entire mesh in static wireframe lines.
-    /// </summary>
-    public static void AddGlowingEdges(GameObject node, Mesh originalMesh)
-    {
-        Vector3[] verts = originalMesh.vertices;
-        
-        Material staticMat = new Material(Shader.Find("Sprites/Default"));
-        // The actual color is now managed dynamically by NodeVisualizer!
-        staticMat.color = new Color(1f, 1f, 1f, 0.2f); 
-
-        // Flat shaded meshes have 3 vertices per triangle. We outline each triangle!
-        for (int i = 0; i < verts.Length; i += 3)
+        // Create the Outer Dyson Sphere Rings
+        int numRings = 5; // 5 intersecting rings creates a dense, complex structure
+        for (int i = 0; i < numRings; i++)
         {
-            GameObject edgeObj = new GameObject("EdgeGlow");
-            edgeObj.transform.SetParent(node.transform, false);
+            GameObject ringObj = new GameObject("DysonRing_" + i);
+            ringObj.transform.SetParent(node.transform, false);
             
-            LineRenderer lr = edgeObj.AddComponent<LineRenderer>();
-            lr.useWorldSpace = false; // Stick to the node even if it moves
-            lr.positionCount = 4;
-            lr.SetPosition(0, verts[i]);
-            lr.SetPosition(1, verts[i+1]);
-            lr.SetPosition(2, verts[i+2]);
-            lr.SetPosition(3, verts[i]); // Loop back to start
+            // Maximum Chaos: Distribute the rings using a completely random 3D orientation
+            // This destroys any mathematical grid pattern and makes it look truly organic
+            ringObj.transform.localRotation = Random.rotationUniform;
+
+            // Give them a completely random starting phase so they aren't coordinated at t=0
+            ringObj.transform.Rotate(Vector3.right, Random.Range(0f, 360f), Space.Self);
+
+            LineRenderer lr = ringObj.AddComponent<LineRenderer>();
+            lr.useWorldSpace = false;
+            lr.loop = true; // Connect the circle perfectly
+            lr.startWidth = 0.04f;
+            lr.endWidth = 0.04f;
             
-            // Reduced to 75% line width to match the smaller shapes (0.04 -> 0.03)
-            lr.startWidth = 0.03f;
-            lr.endWidth = 0.03f;
+            Material staticMat = new Material(Shader.Find("Sprites/Default"));
+            staticMat.color = new Color(1f, 1f, 1f, 0.2f);
             lr.material = staticMat;
+
+            // Draw a perfect horizontal circle in the XZ plane (y=0)
+            int segments = 48; 
+            lr.positionCount = segments;
+            float ringRadius = 0.9f; 
+            for (int j = 0; j < segments; j++)
+            {
+                float rad = Mathf.Deg2Rad * (j * 360f / segments);
+                float x = Mathf.Sin(rad) * ringRadius;
+                float z = Mathf.Cos(rad) * ringRadius;
+                lr.SetPosition(j, new Vector3(x, 0, z)); // Y is 0
+            }
+
+            // Add rotation script to make the ring tumble dynamically
+            var rotator = ringObj.AddComponent<ShellRotator>();
+            rotator.rotationAxis = new Vector3(1, 0, 0);
+            
+            // Randomize speed and drop it to 80% of previous speeds (which were ~35 to 83)
+            // 80% of that is roughly 28 to 66
+            rotator.rotationSpeed = Random.Range(25f, 65f);
+            
+            // Randomly reverse the tumble direction for maximum chaos!
+            if (Random.value > 0.5f) rotator.rotationSpeed *= -1f;
         }
     }
 

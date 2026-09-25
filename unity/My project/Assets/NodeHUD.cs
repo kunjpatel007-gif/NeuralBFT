@@ -39,14 +39,17 @@ public class NodeHUD : MonoBehaviour
             // Lowered from 3.2f to 2.4f to match the 75% smaller monolith meshes
             rt.localPosition = new Vector3(0, 2.4f, 0); 
             rt.localScale = new Vector3(0.01f, 0.01f, 0.01f);
-            rt.sizeDelta = new Vector2(280, 180); 
+            rt.sizeDelta = new Vector2(300, 220); 
 
-            // Reset M_Hologram material back to default UI shader (fixes _MainTex error)
-            // then paint the panel dark charcoal
+            // Inject the new SciFi Holo-Glass panel!
             var imgs = myCanvas.GetComponentsInChildren<UnityEngine.UI.Image>(true);
             foreach(var img in imgs) {
                 img.material = null;
-                img.color = PANEL_BG;
+                img.color = Color.white; // SciFiPanel handles colors inside the sprite
+                if (img.gameObject.GetComponent<SciFiPanel>() == null)
+                {
+                    img.gameObject.AddComponent<SciFiPanel>();
+                }
             }
         }
 
@@ -54,8 +57,8 @@ public class NodeHUD : MonoBehaviour
         {
             RectTransform txtRt = hudText.GetComponent<RectTransform>();
             txtRt.localPosition = Vector3.zero;
-            txtRt.sizeDelta = new Vector2(270, 170);
-            hudText.fontSize = 20;
+            txtRt.sizeDelta = new Vector2(280, 200);
+            hudText.fontSize = 22;
             hudText.alignment = TextAlignmentOptions.Center;
             hudText.richText = true; // Enable rich text for colored labels
         }
@@ -87,9 +90,10 @@ public class NodeHUD : MonoBehaviour
         string valHex   = ColorUtility.ToHtmlStringRGB(TEXT_VALUE);
 
         hudText.text = 
-            $"<color=#{labelHex}>REP:</color> <color=#{valHex}>{data.reputation:F1}%</color>\n" +
-            $"<color=#{labelHex}>ML THREAT:</color> <color=#{valHex}>{data.ml_prob:F2}</color>\n" +
-            $"<color=#{labelHex}>\u03B1:</color> <color=#{valHex}>{data.alpha:F1}</color> <color=#{labelHex}>\u03B2:</color> <color=#{valHex}>{data.beta:F1}</color>\n" +
-            $"<color=#{statusHex}>\u25CF {stat}</color>";
+            $"<color=#{statusHex}><b>\u25A0 {stat} \u25A0</b></color>\n" +
+            $"<color=#{labelHex}><b><size=80%>--------------------</size></b></color>\n" +
+            $"<color=#{labelHex}>REP:</color> <color=#{valHex}><b>{data.reputation:F1}%</b></color>\n" +
+            $"<color=#{labelHex}>THREAT:</color> <color=#{valHex}><b>{data.ml_prob:F2}</b></color>\n" +
+            $"<color=#{labelHex}>\u03B1:</color> <color=#{valHex}>{data.alpha:F1}</color>  <color=#{labelHex}>\u03B2:</color> <color=#{valHex}>{data.beta:F1}</color>";
     }
 }

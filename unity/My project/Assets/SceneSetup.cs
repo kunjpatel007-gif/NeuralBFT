@@ -34,57 +34,7 @@ public class SceneSetup : MonoBehaviour
         SetupPostProcessing();
         SetupLighting();
         SetupAmbient();
-        SetupBackground();
-    }
-
-    void SetupBackground()
-    {
-        // Automatically spawn the custom InfiniteVoidBackground provided by the user
-        if (FindAnyObjectByType<InfiniteVoidBackground>() == null)
-        {
-            // Create a giant quad and parent it to the main camera so it's always in view
-            GameObject voidQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            voidQuad.name = "InfiniteVoidBackground";
-            
-            // Remove the mesh collider so it doesn't block raycasts
-            Destroy(voidQuad.GetComponent<MeshCollider>());
-            
-            // Prevent the giant quad from casting shadows and darkening the scene
-            var mr = voidQuad.GetComponent<MeshRenderer>();
-            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-            mr.receiveShadows = false;
-            
-            if (Camera.main != null)
-            {
-                voidQuad.transform.SetParent(Camera.main.transform);
-                voidQuad.transform.localPosition = new Vector3(0, 0, 50f); 
-                voidQuad.transform.localRotation = Quaternion.identity;
-                
-                // CRITICAL FIX: Calculate the EXACT size of the camera's view at Z=50
-                // Otherwise we are zoomed 400% into the dead center of the shader's UVs, making it look black!
-                float d = 50f;
-                float h = 2.0f * d * Mathf.Tan(Camera.main.fieldOfView * 0.5f * Mathf.Deg2Rad);
-                float w = h * Camera.main.aspect;
-                
-                // Add a 10% buffer so edges don't clip if aspect ratio shifts
-                voidQuad.transform.localScale = new Vector3(w * 1.1f, h * 1.1f, 1f);
-            }
-
-            var voidBg = voidQuad.AddComponent<InfiniteVoidBackground>();
-            // MATCHING INDEX.HTML / STYLE.CSS COLOR SCHEME - BRIGHTENED BY 75%
-            // Original --bg: #0a0a0b (0.039, 0.039, 0.043) * 1.75 = (0.068, 0.068, 0.075)
-            voidBg.baseColor = new Color(0.068f, 0.068f, 0.075f); 
-            // Original --faint: #4e4e53 (0.306, 0.306, 0.325) * 1.75 = (0.535, 0.535, 0.568)
-            voidBg.accentColor = new Color(0.535f, 0.535f, 0.568f, 1f); 
-            voidBg.vignetteInner = 0.2f; 
-            voidBg.vignetteOuter = 0.85f; 
-            voidBg.swirlStrength = 1.0f; // Minimal distraction
-            voidBg.ringCount = 8f; // Minimal distraction
-            
-            // Boosted the stars/blue dots heavily and increased their density!
-            voidBg.starDensity = 60f; 
-            voidBg.particleCount = 0;    
-        }
+        // SetupBackground(); // Removed: Replaced by BackgroundManager
     }
 
     void CreateGridFloor()

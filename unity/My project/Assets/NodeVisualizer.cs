@@ -37,52 +37,38 @@ public class NodeVisualizer : MonoBehaviour
         string stat = (data.status ?? "").ToUpper();
 
         Color baseColor;
-        Color edgeColor; // NEW: Explicitly define the wireframe edge color per state
         float emissionMultiplier;
 
         if (stat == "TRUSTED")
         {
-            // Green trusted node -> Hot pink outline
-            ColorUtility.TryParseHtmlString("#5fb98c", out baseColor); 
-            ColorUtility.TryParseHtmlString("#FF1493", out edgeColor); // Hot Pink
-            emissionMultiplier = 1.58f; 
+            ColorUtility.TryParseHtmlString("#00FF55", out baseColor); // Green Core
+            emissionMultiplier = 3.5f; // Huge glow boost
         }
         else if (stat == "VERIFIED")
         {
-            // Cyan verified node -> Bright green outline
-            ColorUtility.TryParseHtmlString("#6bb8d4", out baseColor); 
-            ColorUtility.TryParseHtmlString("#39FF14", out edgeColor); // Bright Neon Green
-            emissionMultiplier = 0.79f;
+            ColorUtility.TryParseHtmlString("#00FFFF", out baseColor); // Cyan Core
+            emissionMultiplier = 3.5f;
         }
         else if (stat == "WATCHED" || stat == "HIGH RISK")
         {
-            // Yellow high risk node -> Light Blue outline
-            ColorUtility.TryParseHtmlString("#FFC300", out baseColor); 
-            ColorUtility.TryParseHtmlString("#00BFFF", out edgeColor); // Vibrant Light Blue
-            emissionMultiplier = 1.316f; 
+            ColorUtility.TryParseHtmlString("#FFC300", out baseColor); // Yellow Core
+            emissionMultiplier = 3.5f; 
         }
         else if (stat == "QUARANTINED")
         {
-            // Red quarantined node -> Black outline
-            ColorUtility.TryParseHtmlString("#e06464", out baseColor); 
-            ColorUtility.TryParseHtmlString("#000000", out edgeColor); // Solid Black
+            ColorUtility.TryParseHtmlString("#FF0000", out baseColor); // Red Core
             float pulse = 1.053f + Mathf.Sin(pulseTimer * 4f) * 0.79f; 
-            emissionMultiplier = pulse;
+            emissionMultiplier = pulse * 3.5f; // Intense pulsing glow
         }
         else if (stat == "BLACKLISTED")
         {
-            // Black blacklisted node -> Glowy red outline
-            ColorUtility.TryParseHtmlString("#131315", out baseColor); 
-            // Lowered from 5.0 to 1.8 to prevent the red from blowing out into pure white
-            edgeColor = new Color(1.8f, 0.02f, 0.02f, 1.0f); 
-            emissionMultiplier = 0.0f; 
+            ColorUtility.TryParseHtmlString("#000000", out baseColor); // Black Core
+            emissionMultiplier = 0.0f; // Dead core
         }
         else
         {
-            // Fallback (same as verified)
-            ColorUtility.TryParseHtmlString("#6bb8d4", out baseColor); 
-            ColorUtility.TryParseHtmlString("#39FF14", out edgeColor); // Bright Neon Green
-            emissionMultiplier = 0.79f; 
+            ColorUtility.TryParseHtmlString("#00FFFF", out baseColor); 
+            emissionMultiplier = 3.5f; 
         }
 
         foreach (var mr in meshRenderers)
@@ -124,8 +110,8 @@ public class NodeVisualizer : MonoBehaviour
                 {
                     Material newMat = new Material(urpLit);
                     newMat.SetColor("_BaseColor", baseColor);
-                    newMat.SetFloat("_Smoothness", 0.85f);
-                    newMat.SetFloat("_Metallic", 0.3f);
+                    newMat.SetFloat("_Smoothness", 0.6f);
+                    newMat.SetFloat("_Metallic", 0.1f);
                     newMat.EnableKeyword("_EMISSION");
                     newMat.SetColor("_EmissionColor", baseColor * emissionMultiplier);
                     mr.material = newMat;
@@ -133,17 +119,26 @@ public class NodeVisualizer : MonoBehaviour
             }
         }
 
-        // --- NEW: Apply the highly-tuned, explicit edge colors to the wireframes ---
+        // --- NEW: Convert the Dyson Rings from Neon to Pure Metallic Tracks ---
         LineRenderer[] lrs = GetComponentsInChildren<LineRenderer>(true);
-        
-        // Increase the neon bloom on the edges by exactly 35% (1.35x multiplier)
-        Color neonEdgeColor = new Color(edgeColor.r * 1.35f, edgeColor.g * 1.35f, edgeColor.b * 1.35f, edgeColor.a);
         
         foreach (var lr in lrs)
         {
-            if (lr != null && lr.material != null)
+            if (lr != null)
             {
-                lr.material.color = neonEdgeColor;
+                // Assign a true PBR Lit material to the rings so they react to light instead of glowing
+                if (lr.material == null || lr.material.shader.name != "Universal Render Pipeline/Lit")
+                {
+                    Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
+                    if (litShader == null) litShader = Shader.Find("Standard");
+                    lr.material = new Material(litShader);
+                }
+                
+                lr.material.SetColor("_BaseColor", new Color(0.35f, 0.35f, 0.4f)); // Matte Steel
+                lr.material.SetFloat("_Metallic", 0.6f);
+                lr.material.SetFloat("_Smoothness", 0.2f); // Rough metal: kills the sharp sliding light glints
+                lr.material.DisableKeyword("_EMISSION");
+                lr.material.SetColor("_EmissionColor", Color.black);
             }
         }
     }

@@ -65,12 +65,12 @@ public class LeaderboardRow : MonoBehaviour
         if (statusText != null) statusText.text = $"{stat}   ({data.reputation:F1}%)";
         
         Color statColor = Color.white;
-        if (stat == "TRUSTED") ColorUtility.TryParseHtmlString("#5fb98c", out statColor); // Green
-        else if (stat == "VERIFIED") ColorUtility.TryParseHtmlString("#6bb8d4", out statColor); // Cyan
-        else if (stat == "WATCHED" || stat == "HIGH RISK") ColorUtility.TryParseHtmlString("#FFC300", out statColor); // Sharp Yellow
-        else if (stat == "QUARANTINED") ColorUtility.TryParseHtmlString("#e06464", out statColor); // Red
-        else if (stat == "BLACKLISTED") ColorUtility.TryParseHtmlString("#ff3333", out statColor); // Bright Red (Black text is unreadable)
-        else ColorUtility.TryParseHtmlString("#6bb8d4", out statColor); // Default Cyan
+        if (stat == "TRUSTED") ColorUtility.TryParseHtmlString("#00FF55", out statColor); // Emerald Green
+        else if (stat == "VERIFIED") ColorUtility.TryParseHtmlString("#00FFFF", out statColor); // Hyper-Cyan
+        else if (stat == "WATCHED" || stat == "HIGH RISK") ColorUtility.TryParseHtmlString("#FFD700", out statColor); // Neon Gold
+        else if (stat == "QUARANTINED") ColorUtility.TryParseHtmlString("#FF4500", out statColor); // Pulsing Orange
+        else if (stat == "BLACKLISTED") ColorUtility.TryParseHtmlString("#FF0000", out statColor); // Aggressive Red
+        else ColorUtility.TryParseHtmlString("#00FFFF", out statColor); // Default Cyan
 
         if (statusText != null) statusText.color = statColor;
         if (reputationBar != null)

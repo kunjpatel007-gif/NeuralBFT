@@ -44,14 +44,15 @@ public class MessageInteractable : MonoBehaviour
         tmp.fontStyle = FontStyles.Bold; // Make it thicker to stand out
 
         // Build the text payload with a dark background <mark> tag for perfect readability
-        string text = $"<mark=#000000D0><color=#00ffcc>[{msgType}]</color> {senderId.ToUpper()}\n";
-        text += $"THREAT: <color=#ff4d4d>{(mlThreat * 100f):F1}%</color>\n";
+        string text = $"<mark=#0a0a0cD0><color=#00FFFF>[{msgType}]</color> {senderId.ToUpper()}\n";
+        text += $"<size=80%>--------------------</size>\n";
+        text += $"THREAT: <color=#FF4500>{(mlThreat * 100f):F1}%</color>\n";
         
         if (mlFeatures != null && mlFeatures.Count > 0)
         {
             float freq = mlFeatures.ContainsKey("msg_freq") ? mlFeatures["msg_freq"] : 0f;
             float lat = mlFeatures.ContainsKey("latency") ? mlFeatures["latency"] : 0f;
-            text += $"<color=#e8e8ea>FRQ: <color=#d4b155>{freq:F0}</color> | LAT: <color=#d4b155>{lat:F0}ms</color></color>";
+            text += $"<color=#e8e8ea>FRQ: <color=#FFD700>{freq:F0}</color> | LAT: <color=#FFD700>{lat:F0}ms</color></color>";
         }
         else
         {

@@ -67,6 +67,12 @@ public class NetworkManager : MonoBehaviour
 
     async void Start()
     {
+        // Automatically inject the premium background system
+        if (gameObject.GetComponent<BackgroundManager>() == null)
+        {
+            gameObject.AddComponent<BackgroundManager>();
+        }
+
         _cts = new CancellationTokenSource();
         await ConnectWebSocket();
     }
@@ -265,12 +271,40 @@ public class NetworkManager : MonoBehaviour
         lr.endWidth = 0.015f;
         lr.material = new Material(Shader.Find("Sprites/Default")); // Unlit standard material
         lr.material.color = new Color(msgColor.r, msgColor.g, msgColor.b, 0.06f); // 6% alpha (60% of previous 10%)
+        
+        // Make the pipe actively flow
+        pipe.AddComponent<PipeFlow>();
+        
+        // Safely add a sleek neon trail to the flying message shard
+        TrailRenderer tr = shard.GetComponent<TrailRenderer>();
+        if (tr == null)
+        {
+            try { tr = shard.AddComponent<TrailRenderer>(); } catch { tr = null; }
+        }
+
+        if (tr != null)
+        {
+            tr.time = 0.5f; // Fade out quickly
+            tr.startWidth = 0.05f;
+            tr.endWidth = 0.0f;
+            
+            Shader trailShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+            if (trailShader == null) trailShader = Shader.Find("Sprites/Default");
+            
+            if (trailShader != null)
+            {
+                tr.material = new Material(trailShader);
+                tr.material.color = new Color(msgColor.r, msgColor.g, msgColor.b, 0.5f);
+            }
+        }
 
         // INTERACTIVITY: Add a large hit box so you can click the flying block
-        BoxCollider boxCol = shard.AddComponent<BoxCollider>();
+        BoxCollider boxCol = shard.GetComponent<BoxCollider>();
+        if (boxCol == null) boxCol = shard.AddComponent<BoxCollider>();
         boxCol.size = Vector3.one * 3f; // Slightly larger than visual block for easy clicking
 
-        var interact = shard.AddComponent<MessageInteractable>();
+        var interact = shard.GetComponent<MessageInteractable>();
+        if (interact == null) interact = shard.AddComponent<MessageInteractable>();
         interact.msgType = msg.type;
         interact.senderId = msg.from;
 

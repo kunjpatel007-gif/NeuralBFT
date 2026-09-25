@@ -38,19 +38,17 @@ public class LeaderboardManager : MonoBehaviour
             if (img.GetComponentInParent<LeaderboardRow>() != null && img.GetComponent<LeaderboardRow>() == null) continue;
             
             img.material = null; 
-            ColorUtility.TryParseHtmlString("#0a0a0b", out Color bgColor);
-            bgColor.a = 0.90f;
-            img.color = bgColor;
+            img.color = Color.white;
+            
+            // Add SciFi panel to the main background
+            if (img.gameObject == this.gameObject || img.transform.parent == this.transform)
+            {
+                if (img.gameObject.GetComponent<SciFiPanel>() == null)
+                    img.gameObject.AddComponent<SciFiPanel>();
+            }
         }
             
-        // Add a subtle border matching index.html --faint to the root
-        if (gameObject.GetComponent<UnityEngine.UI.Outline>() == null)
-        {
-            var outline = gameObject.AddComponent<UnityEngine.UI.Outline>();
-            ColorUtility.TryParseHtmlString("#4e4e53", out Color outColor);
-            outline.effectColor = outColor;
-            outline.effectDistance = new Vector2(2, -2);
-        }
+        // Removed Outline component since SciFiPanel draws its own border
 
         // 4. Style the title header
         var allTMP = GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
