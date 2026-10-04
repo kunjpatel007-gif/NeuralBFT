@@ -54,6 +54,10 @@ class ByzantineDetector:
             if blob.exists():
                 blob.download_to_filename(self.csv_path)
                 print("☁️ SUCCESS: Downloaded CSV from Google Cloud Storage")
+            else:
+                if os.path.exists(self.csv_path):
+                    blob.upload_from_filename(self.csv_path)
+                    print("☁️ INITIALIZED: Bucket was empty, uploaded baseline CSV to Cloud Storage")
         except Exception as e:
             print(f"⚠️ GCS Init Failed (Running local only): {e}")
             self.storage_client = None
@@ -266,7 +270,9 @@ class ByzantineDetector:
         
     def _save_csv(self):
         try:
-            self.df.to_csv(self.csv_path, index=False)
+            temp_path = self.csv_path + ".tmp"
+            self.df.to_csv(temp_path, index=False)
+            os.replace(temp_path, self.csv_path) # Atomic crash-proof overwrite
             if hasattr(self, 'bucket') and self.bucket:
                 blob = self.bucket.blob('master_training_data_ORGANIC.csv')
                 blob.upload_from_filename(self.csv_path)
@@ -372,4 +378,5 @@ class ByzantineDetector:
             return {"path": node_ids}
         except Exception:
             return {"path": []}
+
 
