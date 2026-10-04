@@ -12,8 +12,8 @@ using Newtonsoft.Json.Linq;
 public class TelemetryClient : MonoBehaviour
 {
     [Header("Connection")]
-    public string localUrl = "ws://127.0.0.1:8766?token=local_dev_token";
-    public string prodUrl = "wss://your-prod-telemetry-url.run.app?token=prod_token";
+    public string localUrl = "ws://127.0.0.1:8765?token=local_dev_token";
+    public string prodUrl = "wss://neuralbft-backend-443293282760.asia-south1.run.app?token=prod_token";
     
     [HideInInspector]
     public string serverUrl;

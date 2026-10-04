@@ -16,7 +16,14 @@ class StateServer:
         """Handle new WebSocket connections."""
         import os
         from urllib.parse import urlparse, parse_qs
-        query = parse_qs(urlparse(websocket.path).query)
+        
+        # websockets v14+ uses websocket.request.path, older versions use websocket.path
+        try:
+            path = websocket.request.path
+        except AttributeError:
+            path = getattr(websocket, 'path', '/')
+            
+        query = parse_qs(urlparse(path).query)
         token = query.get('token', [''])[0]
         
         expected_token = os.environ.get("ADMIN_TOKEN", "local_dev_token")
@@ -75,7 +82,13 @@ class TelemetryServer:
     async def handler(self, websocket):
         import os
         from urllib.parse import urlparse, parse_qs
-        query = parse_qs(urlparse(websocket.path).query)
+        
+        try:
+            path = websocket.request.path
+        except AttributeError:
+            path = getattr(websocket, 'path', '/')
+            
+        query = parse_qs(urlparse(path).query)
         token = query.get('token', [''])[0]
         
         expected_token = os.environ.get("ADMIN_TOKEN", "local_dev_token")

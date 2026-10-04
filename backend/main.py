@@ -11,7 +11,7 @@ from simulator.consensus.dpos import DPoSMechanism
 from simulator.consensus.pbft import PBFTMechanism
 from ml.detector import ByzantineDetector
 from mitigation.policy import ReputationManager
-from server.api import StateServer, TelemetryServer
+from server.api import StateServer
 
 import logging
 import random as _rand
@@ -154,15 +154,12 @@ async def main():
     }
     network.active_consensus = PBFTMechanism()
     
-    # 6. Start StateServer and TelemetryServer
+    # 6. Start StateServer
     port = int(os.environ.get("PORT", 8765))
     server = StateServer(host='0.0.0.0', port=port)
-    telemetry_server = TelemetryServer(host='0.0.0.0', port=8766)
-    
     await server.start()
-    await telemetry_server.start()
     logging.info(f"WebSocket server started on ws://0.0.0.0:{port}")
-    logging.info(f"ML Telemetry server started on ws://0.0.0.0:8766")
+    
     
     # 7. Main loop:
     try:
@@ -179,7 +176,7 @@ async def main():
                         logging.info(f"Injected fault {fault_type} on {node_id}")
                         
                         # --- Broadcast Shockwave to Unity ---
-                        if telemetry_server.clients:
+                        if server.clients:
                             target_node = next((n for n in network.nodes if n.id == node_id), None)
                             if target_node and hasattr(target_node, 'ml_features') and target_node.ml_features:
                                 path_data = detector.get_decision_path(target_node.ml_features)["path"]
@@ -190,7 +187,7 @@ async def main():
                                     "fault_type": fault_type,
                                     "path": path_data
                                 }
-                                asyncio.create_task(telemetry_server.broadcast_telemetry(shockwave_msg))
+                                asyncio.create_task(server.broadcast_state(shockwave_msg))
                 elif action == "switch_consensus":
                     consensus_name = cmd.get("consensus")
                     if consensus_name in consensus_map:
@@ -359,8 +356,8 @@ async def main():
             state = network.get_state()
             await server.broadcast_state(state)
             
-            # f. Broadcast ML Random Forest Diagnostics via TelemetryServer (Port 8766)
-            if telemetry_server.clients:
+            # f. Broadcast ML Random Forest Diagnostics
+            if server.clients:
                 ml_payload = {
                     "type": "telemetry_update",
                     "tree_structure": detector.export_tree_structure()["nodes"],
@@ -370,7 +367,7 @@ async def main():
                     if hasattr(node, "ml_features") and node.ml_features:
                         ml_payload["node_paths"][node.id] = detector.get_decision_path(node.ml_features)["path"]
                 
-                await telemetry_server.broadcast_telemetry(ml_payload)
+                await server.broadcast_state(ml_payload)
 
             # g. Sleep 2 seconds between rounds
             await asyncio.sleep(2)
@@ -388,3 +385,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+
+
