@@ -12,8 +12,8 @@ using Newtonsoft.Json.Linq;
 public class TelemetryClient : MonoBehaviour
 {
     [Header("Connection")]
-    public string localUrl = "ws://127.0.0.1:8765?token=local_dev_token";
-    public string prodUrl = "wss://neuralbft-backend-443293282760.asia-south1.run.app?token=prod_token";
+    public string localUrl = "ws://127.0.0.1:8765";
+    public string prodUrl = "wss://neuralbft-backend-443293282760.asia-south1.run.app";
     
     [HideInInspector]
     public string serverUrl;
@@ -24,11 +24,26 @@ public class TelemetryClient : MonoBehaviour
     private WebSocket _ws;
     private bool _treeBuilt = false;
 
+#if UNITY_WEBGL && !UNITY_EDITOR
+    [System.Runtime.InteropServices.DllImport("__Internal")]
+    private static extern string GetBrowserToken();
+#endif
+
     async void Start()
     {
-        // Auto-Detect Local vs Prod Architecture
-        bool isLocal = Application.isEditor || Application.absoluteURL.Contains("localhost") || Application.absoluteURL.Contains("127.0.0.1");
-        serverUrl = isLocal ? localUrl : prodUrl;
+        // 1. Get Token Securely
+        string token = "local_dev_token"; // fallback for Editor
+#if UNITY_WEBGL && !UNITY_EDITOR
+        try {
+            token = GetBrowserToken();
+        } catch {
+            Debug.LogWarning("Failed to get token from browser bridge.");
+        }
+#endif
+
+        // 2. Auto-Detect Architecture
+        bool isLocal = Application.isEditor || Application.absoluteURL.Contains("localhost") || Application.absoluteURL.Contains("127.0.0.1") || Application.absoluteURL.Contains("file:");
+        serverUrl = (isLocal ? localUrl : prodUrl) + "?token=" + token;
         
         Debug.Log($"[Telemetry] Connecting to: {serverUrl}");
         _ws = new WebSocket(serverUrl);
@@ -136,3 +151,4 @@ public class TelemetryClient : MonoBehaviour
             await _ws.Close();
     }
 }
+

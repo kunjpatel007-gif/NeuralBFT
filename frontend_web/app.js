@@ -280,7 +280,7 @@ function showDetail(n) {
 
 function renderOverlay() {
   const linked = isOpen();
-  setText('mapOverlay', !linked ? (hasState ? 'Disconnected, reconnecting…' : `Connecting to ${WS_URL}`) : hasState ? '' : 'Waiting for data');
+  setText('mapOverlay', !linked ? (hasState ? 'Disconnected, reconnecting…' : `Connecting to ${base_ws}`) : hasState ? '' : 'Waiting for data');
 }
 
 function syncControls() {
