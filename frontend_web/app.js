@@ -1,5 +1,11 @@
 'use strict';
 
+// Auto-inject local token when running on localhost so developers never get stuck on the login page
+const _isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+if (_isLocalHost) {
+    localStorage.setItem('arena_token', 'local_dev_token');
+}
+
 const token = localStorage.getItem('arena_token');
 if (!token) {
     window.location.href = 'login.html';

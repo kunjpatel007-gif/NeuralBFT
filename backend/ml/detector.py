@@ -37,32 +37,39 @@ class ByzantineDetector:
         self._initialize_dataset()
         
     def _init_gcs(self):
-        try:
-            key_path = os.path.join(os.path.dirname(__file__), '..', 'gcp-key.json')
-            if os.path.exists(key_path):
-                from google.oauth2 import service_account
-                creds = service_account.Credentials.from_service_account_file(key_path)
-                self.storage_client = storage.Client(credentials=creds)
-                print("☁️ GCS initialized with local gcp-key.json")
-            else:
-                self.storage_client = storage.Client()
-                print("☁️ GCS initialized with Cloud Run default identity")
-            
-            self.bucket = self.storage_client.bucket(self.bucket_name)
-            
-            blob = self.bucket.blob('master_training_data_ORGANIC.csv')
-            if blob.exists():
-                blob.download_to_filename(self.csv_path)
-                print("☁️ SUCCESS: Downloaded CSV from Google Cloud Storage")
-            else:
-                if os.path.exists(self.csv_path):
-                    blob.upload_from_filename(self.csv_path)
-                    print("☁️ INITIALIZED: Bucket was empty, uploaded baseline CSV to Cloud Storage")
-        except Exception as e:
-            print(f"⚠️ GCS Init Failed (Running local only): {e}")
-            self.storage_client = None
-            self.bucket = None
-        
+        import time
+        key_path = os.path.join(os.path.dirname(__file__), '..', 'gcp-key.json')
+        max_attempts = 3 if not os.path.exists(key_path) else 1
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if os.path.exists(key_path):
+                    from google.oauth2 import service_account
+                    creds = service_account.Credentials.from_service_account_file(key_path)
+                    self.storage_client = storage.Client(credentials=creds)
+                    print("GCS initialized with local gcp-key.json")
+                else:
+                    self.storage_client = storage.Client()
+                    print("GCS initialized with Cloud Run default identity")
+                self.bucket = self.storage_client.bucket(self.bucket_name)
+                blob = self.bucket.blob('master_training_data_ORGANIC.csv')
+                if blob.exists():
+                    blob.download_to_filename(self.csv_path)
+                    print(f"GCS SUCCESS: Downloaded CSV (attempt {attempt})")
+                else:
+                    if os.path.exists(self.csv_path):
+                        blob.upload_from_filename(self.csv_path)
+                        print("GCS INITIALIZED: Bucket empty, uploaded baseline CSV")
+                    else:
+                        print("WARNING: Bucket empty and no local CSV. Will bootstrap synthetic.")
+                return
+            except Exception as e:
+                print(f"GCS attempt {attempt}/{max_attempts} failed: {e}")
+                if attempt < max_attempts:
+                    time.sleep(3)
+                else:
+                    print("GCS permanently unavailable - running local-only mode.")
+                    self.storage_client = None
+                    self.bucket = None
     def _initialize_dataset(self):
         """Loads the CSV if it exists. If it has fewer columns than expected (old schema),
         auto-migrates it by adding new feature columns with sensible defaults.
