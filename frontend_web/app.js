@@ -1,15 +1,27 @@
 'use strict';
 
-// Auto-inject local token when running on localhost so developers never get stuck on the login page
+// Auto-inject local token when running on localhost
 const _isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 if (_isLocalHost) {
     localStorage.setItem('arena_token', 'local_dev_token');
+}
+
+// --- 60 SECOND LOGOUT TIMER ---
+const lastActive = localStorage.getItem('last_active_time');
+if (lastActive && (Date.now() - parseInt(lastActive)) > 60000 && !_isLocalHost) {
+    localStorage.removeItem('arena_token');
+    localStorage.removeItem('last_active_time');
 }
 
 const token = localStorage.getItem('arena_token');
 if (!token) {
     window.location.href = 'login.html';
 }
+
+// Keep the session alive while the tab is open
+setInterval(() => {
+    localStorage.setItem('last_active_time', Date.now().toString());
+}, 2000);
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:';
 const base_ws = new URLSearchParams(location.search).get('ws') || 

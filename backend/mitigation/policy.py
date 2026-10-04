@@ -130,9 +130,9 @@ class ReputationManager:
                 excess = smoothed - current_threshold
                 
                 # 1. Non-linear Beta Penalty anchored to EXCESS threat
-                # If excess is tiny (0.05), penalty is ~1.5 (Gentle)
-                # If excess is massive (0.60), penalty is ~112.0 (Critical Damage)
-                k_exp = 8.0
+                # If excess is tiny (0.05), penalty is ~1.8 (Gentle)
+                # If excess is massive (0.60), penalty is ~1339.0 (Instant Blacklist)
+                k_exp = 12.0
                 beta_increment = 1.0 + (math.exp(k_exp * excess) - 1.0)
                 node.beta += beta_increment
                 

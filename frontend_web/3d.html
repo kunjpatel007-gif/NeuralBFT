@@ -55,5 +55,7 @@
       document.body.appendChild(script);
     </script>
     <script src="app3d.js"></script>
-  </body>
+  <script>setInterval(() => localStorage.setItem('last_active_time', Date.now().toString()), 2000);</script>
+</body>
 </html>
+
