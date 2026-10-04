@@ -1,6 +1,7 @@
 import random
 import time
 import uuid
+import hashlib
 from .base import BaseConsensus
 from ..node import Message
 
@@ -14,12 +15,17 @@ class PBFTMechanism(BaseConsensus):
         if n_count < 4:
             return False
             
-        # f = (n - 1) // 3
-        # In this simplified simulation we will just have the leader broadcast PRE_PREPARE,
-        # then everyone broadcasts PREPARE, then everyone broadcasts COMMIT.
+        # PBFT View Change / Primary Rotation:
+        # Leader is selected based on the current round number (modulo valid nodes)
+        leader_index = network.current_round % n_count
+        leader = valid_nodes[leader_index]
         
-        leader = valid_nodes[0]
-        
+        canonical_hash = hashlib.sha256(f'block_round_{network.current_round}'.encode()).hexdigest()[:16]
+        if leader.is_byzantine and getattr(leader, 'fault_type', '') == 'state_tampering':
+            leader.state_hash = 'tampered_' + uuid.uuid4().hex[:8]
+        else:
+            leader.state_hash = canonical_hash
+            
         # Phase 1: Pre-prepare
         for node in network.nodes:
             if node.id != leader.id:
@@ -30,7 +36,7 @@ class PBFTMechanism(BaseConsensus):
                     sender_id=leader.id,
                     receiver_id=node.id,
                     type="PRE_PREPARE",
-                    payload={"block_id": "block_pbft"},
+                    payload={"block_id": "block_pbft", "state_hash": leader.state_hash},
                     timestamp=time.time()
                 )
                 network.add_message(msg)
@@ -76,13 +82,25 @@ class PBFTMechanism(BaseConsensus):
             
         # Consensus reached! Produce a block
         block_hash = "0x" + uuid.uuid4().hex[:8].upper()
-        network.latest_blocks.append({
-            "hash": block_hash,
-            "proposer": leader.id,
-            "tx_count": random.randint(10, 50),
-            "consensus": "PBFT"
-        })
         
+        is_rejected = (leader.state_hash != canonical_hash)
+        block_entry = {
+            'hash': block_hash,
+            'proposer': leader.id,
+            'tx_count': random.randint(10, 50),
+            'consensus': 'PBFT',
+            'round': network.current_round,
+            'is_rejected': is_rejected
+        }
+        network.latest_blocks.append(block_entry)
+
+        if is_rejected:
+            leader.reputation = max(0, leader.reputation - 30)
+            leader.beta += 25.0
+            leader.alpha = max(1.0, leader.alpha * 0.1)
+            if hasattr(leader, 'update_status'):
+                leader.update_status()
+                
         return True
         
     def apply_mitigation(self, node) -> None:

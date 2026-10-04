@@ -11,7 +11,7 @@ from simulator.consensus.dpos import DPoSMechanism
 from simulator.consensus.pbft import PBFTMechanism
 from ml.detector import ByzantineDetector
 from mitigation.policy import ReputationManager
-from server.api import StateServer
+from server.api import StateServer, TelemetryServer
 
 import logging
 import random as _rand
@@ -154,11 +154,15 @@ async def main():
     }
     network.active_consensus = PBFTMechanism()
     
-    # 6. Start StateServer
+    # 6. Start StateServer and TelemetryServer
     port = int(os.environ.get("PORT", 8765))
     server = StateServer(host='0.0.0.0', port=port)
+    telemetry_server = TelemetryServer(host='0.0.0.0', port=8766)
+    
     await server.start()
+    await telemetry_server.start()
     logging.info(f"WebSocket server started on ws://0.0.0.0:{port}")
+    logging.info(f"ML Telemetry server started on ws://0.0.0.0:8766")
     
     # 7. Main loop:
     try:
@@ -173,6 +177,20 @@ async def main():
                     if node_id and fault_type:
                         network.inject_fault(node_id, fault_type)
                         logging.info(f"Injected fault {fault_type} on {node_id}")
+                        
+                        # --- Broadcast Shockwave to Unity ---
+                        if telemetry_server.clients:
+                            target_node = next((n for n in network.nodes if n.id == node_id), None)
+                            if target_node and hasattr(target_node, 'ml_features') and target_node.ml_features:
+                                path_data = detector.get_decision_path(target_node.ml_features)["path"]
+                                # Fire-and-forget broadcast via create_task so we don't block the loop
+                                shockwave_msg = {
+                                    "type": "injection_shockwave",
+                                    "node_id": node_id,
+                                    "fault_type": fault_type,
+                                    "path": path_data
+                                }
+                                asyncio.create_task(telemetry_server.broadcast_telemetry(shockwave_msg))
                 elif action == "switch_consensus":
                     consensus_name = cmd.get("consensus")
                     if consensus_name in consensus_map:
@@ -198,30 +216,98 @@ async def main():
                     if len(network.nodes) > 4:
                         removed = network.nodes.pop()
                         logging.info(f"Removed node {removed.id}")
+                elif action == 'sybil_swarm':
+                    count = min(cmd.get('count', 5), 10)
+                    for i in range(count):
+                        if len(network.nodes) < 50:
+                            new_id = f'node_{len(network.nodes)}'
+                            new_node = Node(id=new_id, is_byzantine=True, reputation=100.0, status='Trusted')
+                            new_node.spawn_round = network.current_round
+                            assign_network_profile(new_node)
+                            setattr(new_node, 'fault_type', 'spam')
+                            network.nodes.append(new_node)
+                    logging.info(f'Sybil swarm: injected {count} malicious nodes')
+                elif action == 'get_history_snapshot':
+                    target_round = cmd.get('round')
+                    client = cmd.get('_client')
+                    if target_round is not None and client is not None:
+                        snapshot = next(
+                            (s for s in server.history if s.get('round') == target_round), None
+                        )
+                        if snapshot:
+                            await server.send_to_client(client, {'type': 'history_snapshot', 'data': snapshot})
                 elif action == "report_false_positive":
                     node_id = cmd.get("node_id")
                     node = next((n for n in network.nodes if n.id == node_id), None)
-                    if node and hasattr(node, 'ml_features') and node.ml_features:
-                        count = detector.train_online(node.ml_features, is_byzantine=0)
-                        # Bayesian Manual Heal
-                        node.alpha += 15.0
-                        node.beta = max(1.0, node.beta - 5.0)
+                    if node:
+                        # Build a safe honest feature vector even if ml_features is missing
+                        heal_features = dict(node.ml_features) if (hasattr(node, 'ml_features') and node.ml_features) else {}
+                        heal_features['invalid_hash_rate'] = 0.0
+                        age = network.current_round - getattr(node, 'spawn_round', 0)
+                        heal_features['identity_age_score'] = min(1.0, age / 100.0)
+                        heal_features.setdefault('msg_freq', 50.0)
+                        heal_features.setdefault('vote_inconsistency', 0.05)
+                        heal_features.setdefault('latency', 100.0)
+                        heal_features.setdefault('fork_attempts', 0)
+                        heal_features.setdefault('silence_ratio', 0.02)
+                        heal_features.setdefault('msg_freq_delta', 0.0)
+                        heal_features.setdefault('latency_delta', 0.0)
+                        heal_features.setdefault('vote_drift_delta', 0.0)
+                        heal_features.setdefault('silence_delta', 0.0)
+                        heal_features.setdefault('freq_spike_ratio', 1.0)
+                        heal_features.setdefault('lat_spike_ratio', 1.0)
+
+                        count = detector.train_online(heal_features, is_byzantine=0)
+
+                        # Instant Bayesian Heal: Hard-reset alpha/beta to a clean Trusted baseline.
+                        # Gentle increments (alpha+=15) are useless against a beta=100-200 criminal record.
+                        node.alpha = 20.0
+                        node.beta = 1.0
                         node.reputation = (node.alpha / (node.alpha + node.beta)) * 100.0
+                        node.ml_prob = 0.0
+                        node.ml_features = heal_features
+                        # Also flush the temporal history so the next round doesn't re-punish from stale data
+                        if hasattr(reputation_manager, 'history') and node_id in reputation_manager.history:
+                            reputation_manager.history[node_id].clear()
                         if hasattr(node, 'update_status'):
                             node.update_status()
-                        logging.info(f"Online training: {node_id} marked as FALSE POSITIVE (train #{count})")
+                        logging.info(f"Online training: {node_id} marked as FALSE POSITIVE — hard healed to Trusted (train #{count})")
                 elif action == "report_missed_attack":
                     node_id = cmd.get("node_id")
                     node = next((n for n in network.nodes if n.id == node_id), None)
-                    if node and hasattr(node, 'ml_features') and node.ml_features:
-                        count = detector.train_online(node.ml_features, is_byzantine=1)
-                        # Bayesian Manual Punish
-                        node.beta += 20.0
-                        node.alpha = max(1.0, node.alpha - 10.0)
+                    if node:
+                        # Build a safe attack feature vector even if ml_features is missing
+                        punish_features = dict(node.ml_features) if (hasattr(node, 'ml_features') and node.ml_features) else {}
+                        punish_features['invalid_hash_rate'] = 0.8
+                        age = network.current_round - getattr(node, 'spawn_round', 0)
+                        punish_features['identity_age_score'] = min(1.0, age / 100.0)
+                        punish_features.setdefault('msg_freq', 150.0)
+                        punish_features.setdefault('vote_inconsistency', 0.8)
+                        punish_features.setdefault('latency', 500.0)
+                        punish_features.setdefault('fork_attempts', 3)
+                        punish_features.setdefault('silence_ratio', 0.5)
+                        punish_features.setdefault('msg_freq_delta', 50.0)
+                        punish_features.setdefault('latency_delta', 300.0)
+                        punish_features.setdefault('vote_drift_delta', 0.6)
+                        punish_features.setdefault('silence_delta', 0.4)
+                        punish_features.setdefault('freq_spike_ratio', 3.0)
+                        punish_features.setdefault('lat_spike_ratio', 5.0)
+
+                        count = detector.train_online(punish_features, is_byzantine=1)
+                        
+                        # Instant Bayesian Punish: Hard-reset to Quarantined/Blacklisted.
+                        # Gentle increments (beta+=20) are useless if a node built up alpha=100.
+                        node.alpha = 1.0
+                        node.beta = 100.0
                         node.reputation = (node.alpha / (node.alpha + node.beta)) * 100.0
+                        node.ml_prob = 1.0
+                        node.ml_features = punish_features
+                        # Flush history so past good behavior doesn't save them
+                        if hasattr(reputation_manager, 'history') and node_id in reputation_manager.history:
+                            reputation_manager.history[node_id].clear()
                         if hasattr(node, 'update_status'):
                             node.update_status()
-                        logging.info(f"Online training: {node_id} marked as MISSED ATTACK (train #{count})")
+                        logging.info(f"Online training: {node_id} marked as MISSED ATTACK — hard punished to Quarantined (train #{count})")
             
             # b. Run one consensus round
             round_stats = await network.run_round()
@@ -256,6 +342,16 @@ async def main():
                     # Honest nodes now use their specific chaos profiles!
                     round_features[node.id] = generate_honest_telemetry(node)
             
+            # Enrich features with new ML columns
+            for node_id, features in round_features.items():
+                node_obj = next((n for n in network.nodes if n.id == node_id), None)
+                if node_obj:
+                    features['invalid_hash_rate'] = 0.0
+                    if hasattr(node_obj, 'fault_type') and getattr(node_obj, 'fault_type', '') == 'state_tampering' and node_obj.is_byzantine:
+                        features['invalid_hash_rate'] = _rand.uniform(0.5, 1.0)
+                    age = network.current_round - getattr(node_obj, 'spawn_round', 0)
+                    features['identity_age_score'] = min(1.0, age / 100.0)
+
             # d. Run ReputationManager.evaluate_round()
             reputation_manager.evaluate_round(network.nodes, round_features)
             
@@ -263,10 +359,23 @@ async def main():
             state = network.get_state()
             await server.broadcast_state(state)
             
-            # f. Sleep 2 seconds between rounds
+            # f. Broadcast ML Random Forest Diagnostics via TelemetryServer (Port 8766)
+            if telemetry_server.clients:
+                ml_payload = {
+                    "type": "telemetry_update",
+                    "tree_structure": detector.export_tree_structure()["nodes"],
+                    "node_paths": {}
+                }
+                for node in network.nodes:
+                    if hasattr(node, "ml_features") and node.ml_features:
+                        ml_payload["node_paths"][node.id] = detector.get_decision_path(node.ml_features)["path"]
+                
+                await telemetry_server.broadcast_telemetry(ml_payload)
+
+            # g. Sleep 2 seconds between rounds
             await asyncio.sleep(2)
             
-            # g. Clear messages_in_flight for next round
+            # h. Clear messages_in_flight for next round
             network.messages_in_flight.clear()
             
     except asyncio.CancelledError:

@@ -27,6 +27,8 @@ class Node:
     ml_features: dict = None
     alpha: float = 20.0  # Bayesian Honest Counter
     beta: float = 1.0    # Bayesian Suspicious Counter
+    state_hash: str = ''
+    spawn_round: int = 0
 
     def update_status(self):
         if self.reputation >= 90.0:

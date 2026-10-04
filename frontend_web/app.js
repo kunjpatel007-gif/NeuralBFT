@@ -1,6 +1,14 @@
 'use strict';
 
-const WS_URL = new URLSearchParams(location.search).get('ws') || 'wss://neuralbft-backend-443293282760.asia-south1.run.app';
+const token = localStorage.getItem('arena_token');
+if (!token) {
+    window.location.href = 'login.html';
+}
+
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:';
+const base_ws = new URLSearchParams(location.search).get('ws') || 
+               (isLocal ? 'ws://127.0.0.1:8765' : 'wss://neuralbft-backend-443293282760.asia-south1.run.app');
+const WS_URL = base_ws + "?token=" + encodeURIComponent(token);
 
 const CONSENSUS = ['PoW', 'PoS', 'DPoS', 'PBFT'];
 const FAULTS = [
@@ -8,6 +16,8 @@ const FAULTS = [
   ['offline', 'Offline'],
   ['malicious', 'Malicious'],
   ['stealth', 'Stealth'],
+  ['state_tampering', 'State Tampering'],
+  ['spam', 'DDoS Spam'],
 ];
 
 const STATUS_COLOR = {
@@ -488,6 +498,7 @@ $('detailClose').addEventListener('click', () => selectNode(null));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') selectNode(null); });
 $('injectBtn').addEventListener('click', injectFault);
 $('splitBtn').addEventListener('click', toggleSplit);
+$('sybilBtn').addEventListener('click', () => send({ action: 'sybil_swarm', count: 5 }));
 $('addNodeBtn').addEventListener('click', () => sendAction('add_node'));
 $('removeNodeBtn').addEventListener('click', () => sendAction('remove_node'));
 $('fpBtn').addEventListener('click', trainFalsePositive);

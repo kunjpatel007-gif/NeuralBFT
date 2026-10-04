@@ -32,6 +32,10 @@ public class BlockData
 {
     public int round;
     public string proposer;
+    public string hash;
+    public bool is_rejected;
+    public string consensus;
+    public int tx_count;
 }
 
 [Serializable]
@@ -64,6 +68,8 @@ public class NetworkManager : MonoBehaviour
     private Dictionary<string, GameObject> _nodeMap = new Dictionary<string, GameObject>();
 
     public NodeSpawner nodeSpawner; // Need reference to the spawner
+    public LedgerZone ledgerZone;
+    public TimelineController timelineController;
 
     async void Start()
     {
@@ -90,6 +96,10 @@ public class NetworkManager : MonoBehaviour
     {
         try
         {
+            // Timeline recording
+            if (timelineController != null) timelineController.RecordSnapshot(json);
+            if (timelineController != null && timelineController.IsRewinding) return;
+            
             _latestState = JsonConvert.DeserializeObject<ServerState>(json);
             _hasNewState = true;
         }
@@ -136,6 +146,10 @@ public class NetworkManager : MonoBehaviour
             }
 
             string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+
+            // Timeline recording
+            if (timelineController != null) timelineController.RecordSnapshot(json);
+            if (timelineController != null && timelineController.IsRewinding) continue;
 
             try
             {
@@ -194,6 +208,13 @@ public class NetworkManager : MonoBehaviour
             }
         }
 
+        // 2b. Forward blocks to the 3D Ledger Zone
+        if (_latestState.blocks != null && ledgerZone != null)
+        {
+            foreach (var block in _latestState.blocks)
+                ledgerZone.TrySpawnBlock(block);
+        }
+
         // 3. Spawn real messages instantaneously the exact moment the block arrives
         if (_latestState.messages != null && messagePrefab != null)
         {
@@ -232,6 +253,9 @@ public class NetworkManager : MonoBehaviour
         return bestCorner;
     }
 
+    // Cache for the message shard mesh to prevent massive lag during Timeline scrubbing
+    private Mesh _cachedMessageMesh;
+
     void SpawnMessage(MessageData msg)
     {
         if (!_nodeMap.TryGetValue(msg.from, out GameObject senderGO)) return;
@@ -249,7 +273,12 @@ public class NetworkManager : MonoBehaviour
 
         // Inject the ultra-sleek, highly polished Icosahedron mesh!
         MeshFilter mf = shard.GetComponent<MeshFilter>();
-        if (mf != null) mf.mesh = NodeSpawner.CreateSleekCyberCore(0.6f, 1.0f);
+        if (mf != null) 
+        {
+            if (_cachedMessageMesh == null)
+                _cachedMessageMesh = NodeSpawner.CreateSleekCyberCore(0.6f, 1.0f);
+            mf.sharedMesh = _cachedMessageMesh;
+        }
 
         // Get the message color based on partition
         Color msgColor = Color.white;
@@ -289,12 +318,15 @@ public class NetworkManager : MonoBehaviour
         lr.positionCount = 2;
         lr.SetPosition(0, startPos);
         lr.SetPosition(1, endPos);
-        lr.startWidth = 0.04f; // Thick enough to survive zooming out
+        lr.startWidth = 0.04f;
         lr.endWidth = 0.04f;
-        lr.material = new Material(Shader.Find("Sprites/Default")); // Unlit standard material
-        lr.material.color = new Color(msgColor.r, msgColor.g, msgColor.b, 0.06f); // 6% alpha (60% of previous 10%)
         
-        // Make the pipe actively flow
+        // Use vertex colors to tint the shared material inside PipeFlow.cs
+        Color pipeColor = new Color(msgColor.r, msgColor.g, msgColor.b, 0.06f);
+        lr.startColor = pipeColor;
+        lr.endColor   = pipeColor;
+
+        // Make the pipe actively flow (PipeFlow applies the shared material)
         pipe.AddComponent<PipeFlow>();
         
         // Safely add a sleek neon trail to the flying message shard
@@ -384,12 +416,29 @@ public class NetworkManager : MonoBehaviour
         }
     }
 
+    public void RenderHistoricalState(ServerState state)
+    {
+        _latestState = state;
+        _hasNewState = true;
+    }
+
+    void OnDisable()
+    {
+        // Stop all flying-message coroutines so they don't reference destroyed objects
+        StopAllCoroutines();
+    }
+
     void OnDestroy()
     {
+        StopAllCoroutines();
         _cts?.Cancel();
-        if (_ws != null && _ws.State == WebSocketState.Open)
+        _cts?.Dispose();   // release the underlying WaitHandle
+        if (_ws != null)
         {
-            _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+            if (_ws.State == WebSocketState.Open)
+                _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+            _ws.Dispose(); // release socket handles
         }
+        if (_cachedMessageMesh != null) Destroy(_cachedMessageMesh);
     }
-}
+}

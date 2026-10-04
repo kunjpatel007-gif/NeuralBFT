@@ -1,3 +1,4 @@
+import random
 import time
 import uuid
 from .base import BaseConsensus
@@ -51,6 +52,15 @@ class DPoSMechanism(BaseConsensus):
                 )
                 network.add_message(msg)
                 
+        network.latest_blocks.append({
+            "hash": "0x" + uuid.uuid4().hex[:8].upper(),
+            "proposer": proposer.id,
+            "tx_count": random.randint(10, 50),
+            "consensus": "DPoS",
+            "round": network.current_round,
+            "is_rejected": False
+        })
+        
         return True
         
     def apply_mitigation(self, node) -> None:

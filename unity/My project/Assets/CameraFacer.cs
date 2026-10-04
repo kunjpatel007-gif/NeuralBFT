@@ -1,16 +1,18 @@
 using UnityEngine;
 using UnityEngine.UI;
 
-/// <summary>
-/// Attach this script to ANY World Space Canvas or GameObject and it will
-/// automatically face the main camera every frame, like a billboard.
-/// Also forcefully overrides the background panel color on startup.
-/// </summary>
 public class CameraFacer : MonoBehaviour
 {
     [Header("Background Color Override")]
-    public bool overrideBackgroundColor = false;
-    public Color backgroundColor = new Color(0.08f, 0.10f, 0.14f, 0.95f); // Dark Charcoal
+    public bool  overrideBackgroundColor = false;
+    public Color backgroundColor = new Color(0.08f, 0.10f, 0.14f, 0.95f);
+
+    private Camera _cam; // cached — Camera.main is a tag search, never call in LateUpdate
+
+    void Awake()
+    {
+        _cam = Camera.main;
+    }
 
     void Start()
     {
@@ -19,18 +21,19 @@ public class CameraFacer : MonoBehaviour
             var images = GetComponentsInChildren<Image>(true);
             foreach (var img in images)
             {
-                img.material = null; // Reset to default UI material (kills M_Hologram shader error)
-                img.color = backgroundColor;
+                img.material = null;
+                img.color    = backgroundColor;
             }
         }
     }
 
     void LateUpdate()
     {
-        if (Camera.main == null) return;
-        // Point THIS object's front face directly at the camera
+        if (_cam == null) _cam = Camera.main; // re-acquire if scene reloaded
+        if (_cam == null) return;
+
         transform.rotation = Quaternion.LookRotation(
-            transform.position - Camera.main.transform.position
+            transform.position - _cam.transform.position
         );
     }
 }

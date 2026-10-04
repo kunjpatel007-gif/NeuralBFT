@@ -5,35 +5,53 @@ using System.Linq;
 public class NodeSpawner : MonoBehaviour
 {
     public GameObject nodePrefab;
-    // Increased from 8f to 18f to give the new elongated shapes much more space
     public float radius = 18f;
 
-    /// <summary>
-    /// Distributes N points evenly across the surface of a sphere using the
-    /// Fibonacci Sphere algorithm. This creates a beautiful, even 3D distribution
-    /// instead of a flat boring circle.
-    /// </summary>
+    // Shared resources — created once, used by all nodes
+    private Mesh     _sharedCoreMesh;
+    private Material _sharedRingMat;
+
+    void Awake()
+    {
+        // Build the shared mesh once
+        _sharedCoreMesh = CreateSleekCyberCore(0.35f, 1.0f);
+
+        // Build the shared ring material once
+        Shader s = Shader.Find("Universal Render Pipeline/Lit");
+        if (s == null) s = Shader.Find("Sprites/Default");
+        
+        _sharedRingMat = new Material(s);
+        _sharedRingMat.SetColor("_BaseColor", new Color(0.35f, 0.35f, 0.4f)); // Matte Steel
+        _sharedRingMat.SetFloat("_Metallic", 0.6f);
+        _sharedRingMat.SetFloat("_Smoothness", 0.2f);
+        _sharedRingMat.DisableKeyword("_EMISSION");
+        _sharedRingMat.SetColor("_EmissionColor", Color.black);
+    }
+
+    void OnDestroy()
+    {
+        if (_sharedCoreMesh != null) Destroy(_sharedCoreMesh);
+        if (_sharedRingMat  != null) Destroy(_sharedRingMat);
+    }
+
     private Vector3 FibonacciSpherePoint(int index, int total)
     {
-        // Golden angle in radians
         float goldenAngle = Mathf.PI * (3f - Mathf.Sqrt(5f));
-
-        // Y goes from +1 to -1 evenly
         float y = 1f - (index / (float)(total - 1)) * 2f;
         float radiusAtY = Mathf.Sqrt(1f - y * y);
-
         float theta = goldenAngle * index;
         float x = Mathf.Cos(theta) * radiusAtY;
         float z = Mathf.Sin(theta) * radiusAtY;
-
         return new Vector3(x, y, z) * radius;
     }
 
-    // Dynamically spawn, destroy, and arrange nodes in a 3D sphere
     public Dictionary<string, GameObject> SyncNodes(List<NodeData> serverNodes, Dictionary<string, GameObject> currentMap)
     {
         // 1. Destroy nodes that no longer exist on the server
-        var serverIds = new HashSet<string>(serverNodes.Select(n => n.id));
+        // Using a local reusable HashSet to avoid LINQ allocation
+        var serverIds = new HashSet<string>();
+        foreach (var n in serverNodes) serverIds.Add(n.id);
+
         var toRemove = new List<string>();
         foreach (var kvp in currentMap)
         {
@@ -45,17 +63,14 @@ public class NodeSpawner : MonoBehaviour
         }
         foreach (var id in toRemove) currentMap.Remove(id);
 
-        // 2. Spawn missing nodes and replace ProBuilder mesh with smooth sphere
+        // 2. Spawn missing nodes
         foreach (var node in serverNodes)
         {
             if (!currentMap.ContainsKey(node.id))
             {
                 GameObject newGo = Instantiate(nodePrefab);
                 newGo.name = node.id;
-
-                // Replace the faceted ProBuilder mesh with a perfectly smooth Unity sphere
                 SmoothifyMesh(newGo);
-
                 currentMap[node.id] = newGo;
             }
         }
@@ -66,83 +81,56 @@ public class NodeSpawner : MonoBehaviour
         {
             string id = serverNodes[i].id;
             if (currentMap.TryGetValue(id, out GameObject go) && go != null)
-            {
                 go.transform.position = FibonacciSpherePoint(i, count);
-            }
         }
 
         return currentMap;
     }
 
-    /// <summary>
-    /// Replaces the rough ProBuilder mesh on a node with an ultra-sleek, 
-    /// multi-layered kinetic structure: solid glowing core + rotating Dyson rings.
-    /// </summary>
     void SmoothifyMesh(GameObject node)
     {
         MeshFilter[] meshFilters = node.GetComponentsInChildren<MeshFilter>(true);
         if (meshFilters.Length == 0) return;
 
-        // The Inner Solid Core (Perfect geometric sphere, scaled down tightly)
-        Mesh innerCoreMesh = CreateSleekCyberCore(0.35f, 1.0f);
+        // Assign the shared mesh — no per-node allocation
         foreach (var mf in meshFilters)
-        {
-            mf.sharedMesh = innerCoreMesh;
-        }
+            mf.sharedMesh = _sharedCoreMesh;
 
         // Clean up old colliders
         var oldColliders = node.GetComponentsInChildren<Collider>(true);
         foreach (var col in oldColliders) Destroy(col);
-        
-        // Add a perfectly sized BoxCollider based on the full outer size
+
         BoxCollider boxCol = node.AddComponent<BoxCollider>();
         boxCol.size = new Vector3(1.8f, 1.8f, 1.8f);
 
-        // Create the Outer Dyson Sphere Rings
-        int numRings = 5; // 5 intersecting rings creates a dense, complex structure
+        // Create Dyson rings — assign sharedMaterial, no per-ring leak
+        int numRings = 5;
         for (int i = 0; i < numRings; i++)
         {
             GameObject ringObj = new GameObject("DysonRing_" + i);
             ringObj.transform.SetParent(node.transform, false);
-            
-            // Maximum Chaos: Distribute the rings using a completely random 3D orientation
-            // This destroys any mathematical grid pattern and makes it look truly organic
             ringObj.transform.localRotation = Random.rotationUniform;
-
-            // Give them a completely random starting phase so they aren't coordinated at t=0
             ringObj.transform.Rotate(Vector3.right, Random.Range(0f, 360f), Space.Self);
 
             LineRenderer lr = ringObj.AddComponent<LineRenderer>();
             lr.useWorldSpace = false;
-            lr.loop = true; // Connect the circle perfectly
+            lr.loop = true;
             lr.startWidth = 0.04f;
-            lr.endWidth = 0.04f;
-            
-            Material staticMat = new Material(Shader.Find("Sprites/Default"));
-            staticMat.color = new Color(1f, 1f, 1f, 0.2f);
-            lr.material = staticMat;
+            lr.endWidth   = 0.04f;
+            lr.sharedMaterial = _sharedRingMat; // shared — no clone, no leak
 
-            // Draw a perfect horizontal circle in the XZ plane (y=0)
-            int segments = 48; 
+            int segments = 48;
             lr.positionCount = segments;
-            float ringRadius = 0.9f; 
+            float ringRadius = 0.9f;
             for (int j = 0; j < segments; j++)
             {
                 float rad = Mathf.Deg2Rad * (j * 360f / segments);
-                float x = Mathf.Sin(rad) * ringRadius;
-                float z = Mathf.Cos(rad) * ringRadius;
-                lr.SetPosition(j, new Vector3(x, 0, z)); // Y is 0
+                lr.SetPosition(j, new Vector3(Mathf.Sin(rad) * ringRadius, 0, Mathf.Cos(rad) * ringRadius));
             }
 
-            // Add rotation script to make the ring tumble dynamically
             var rotator = ringObj.AddComponent<ShellRotator>();
-            rotator.rotationAxis = new Vector3(1, 0, 0);
-            
-            // Randomize speed and drop it to 80% of previous speeds (which were ~35 to 83)
-            // 80% of that is roughly 28 to 66
+            rotator.rotationAxis  = new Vector3(1, 0, 0);
             rotator.rotationSpeed = Random.Range(25f, 65f);
-            
-            // Randomly reverse the tumble direction for maximum chaos!
             if (Random.value > 0.5f) rotator.rotationSpeed *= -1f;
         }
     }

@@ -2,146 +2,103 @@ using UnityEngine;
 
 /// <summary>
 /// Dynamically colors node spheres based on their trust status.
-/// Works with Standard, URP Lit, AND custom Shader Graphs.
-/// If the material doesn't support any known color property, 
-/// it creates a fresh URP Lit material as a fallback.
+/// FIXED: Uses MaterialPropertyBlock for zero-allocation color updates.
+/// No new Material() calls. No shader leaks.
 /// </summary>
 public class NodeVisualizer : MonoBehaviour
 {
-    private MeshRenderer[] meshRenderers;
-    private float pulseTimer = 0f;
+    private MeshRenderer[]      _meshRenderers;
+    private MaterialPropertyBlock _mpb;
+    private float               _pulseTimer = 0f;
+
+    // Cached shader property IDs — faster than string lookup
+    private static readonly int _propBaseColor      = Shader.PropertyToID("_BaseColor");
+    private static readonly int _propColor          = Shader.PropertyToID("_Color");
+    private static readonly int _propEmissionColor  = Shader.PropertyToID("_EmissionColor");
+
+    // Static cached Colors to avoid ColorUtility.TryParseHtmlString allocations every frame
+    private static readonly Color _colorTrusted     = new Color(0f,    1f,    0.333f); // #00FF55
+    private static readonly Color _colorVerified    = new Color(0f,    1f,    1f);     // #00FFFF
+    private static readonly Color _colorWatched     = new Color(1f,    0.765f,0f);     // #FFC300
+    private static readonly Color _colorQuarantined = new Color(1f,    0f,    0f);     // #FF0000
+    private static readonly Color _colorBlacklisted = Color.black;
+
+    // Shared core material — created once per node, destroyed when node dies
+    private Material _sharedCoreMat;
 
     void Awake()
     {
-        meshRenderers = GetComponentsInChildren<MeshRenderer>(true);
+        _meshRenderers = GetComponentsInChildren<MeshRenderer>(true);
+        _mpb = new MaterialPropertyBlock();
+
+        Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
+        if (urpLit != null)
+        {
+            _sharedCoreMat = new Material(urpLit);
+            _sharedCoreMat.SetFloat("_Smoothness", 0.6f);
+            _sharedCoreMat.SetFloat("_Metallic", 0.1f);
+            _sharedCoreMat.EnableKeyword("_EMISSION");
+            
+            foreach (var mr in _meshRenderers)
+                if (mr != null) mr.sharedMaterial = _sharedCoreMat;
+        }
     }
 
     void Start()
     {
-        // Apply default color immediately so nodes aren't blank while offline
-        NodeData dummyData = new NodeData();
-        dummyData.status = "VERIFIED";
+        NodeData dummyData = new NodeData { status = "VERIFIED" };
         UpdateVisuals(dummyData);
     }
 
     void Update()
     {
-        // Subtle breathing pulse for quarantined/blacklisted nodes
-        pulseTimer += Time.deltaTime;
+        _pulseTimer += Time.deltaTime;
     }
 
     public void UpdateVisuals(NodeData data)
     {
-        if (meshRenderers == null || meshRenderers.Length == 0) return;
+        if (_meshRenderers == null || _meshRenderers.Length == 0) return;
 
         string stat = (data.status ?? "").ToUpper();
 
         Color baseColor;
         float emissionMultiplier;
 
-        if (stat == "TRUSTED")
+        switch (stat)
         {
-            ColorUtility.TryParseHtmlString("#00FF55", out baseColor); // Green Core
-            emissionMultiplier = 3.5f; // Huge glow boost
-        }
-        else if (stat == "VERIFIED")
-        {
-            ColorUtility.TryParseHtmlString("#00FFFF", out baseColor); // Cyan Core
-            emissionMultiplier = 3.5f;
-        }
-        else if (stat == "WATCHED" || stat == "HIGH RISK")
-        {
-            ColorUtility.TryParseHtmlString("#FFC300", out baseColor); // Yellow Core
-            emissionMultiplier = 3.5f; 
-        }
-        else if (stat == "QUARANTINED")
-        {
-            ColorUtility.TryParseHtmlString("#FF0000", out baseColor); // Red Core
-            float pulse = 1.053f + Mathf.Sin(pulseTimer * 4f) * 0.79f; 
-            emissionMultiplier = pulse * 3.5f; // Intense pulsing glow
-        }
-        else if (stat == "BLACKLISTED")
-        {
-            ColorUtility.TryParseHtmlString("#000000", out baseColor); // Black Core
-            emissionMultiplier = 0.0f; // Dead core
-        }
-        else
-        {
-            ColorUtility.TryParseHtmlString("#00FFFF", out baseColor); 
-            emissionMultiplier = 3.5f; 
+            case "TRUSTED":
+                baseColor = _colorTrusted;     emissionMultiplier = 3.5f; break;
+            case "WATCHED":
+            case "HIGH RISK":
+                baseColor = _colorWatched;     emissionMultiplier = 3.5f; break;
+            case "QUARANTINED":
+                baseColor = _colorQuarantined;
+                float pulse = 1.053f + Mathf.Sin(_pulseTimer * 4f) * 0.79f;
+                emissionMultiplier = pulse * 3.5f; break;
+            case "BLACKLISTED":
+                baseColor = _colorBlacklisted; emissionMultiplier = 0f;   break;
+            default: // VERIFIED and unknown
+                baseColor = _colorVerified;    emissionMultiplier = 3.5f; break;
         }
 
-        foreach (var mr in meshRenderers)
+        Color emissionColor = baseColor * emissionMultiplier;
+
+        foreach (var mr in _meshRenderers)
         {
-            if (mr == null || mr.material == null) continue;
-            Material mat = mr.material;
+            if (mr == null) continue;
 
-            bool colorSet = false;
-
-            // Try every known color property name across all shader types
-            string[] colorProps = { "_BaseColor", "_Color", "_MainColor", "_TintColor" };
-            foreach (string prop in colorProps)
-            {
-                if (mat.HasProperty(prop))
-                {
-                    mat.SetColor(prop, baseColor);
-                    colorSet = true;
-                    break;
-                }
-            }
-
-            // Try emission properties
-            string[] emissionProps = { "_EmissionColor", "_EmissiveColor" };
-            foreach (string prop in emissionProps)
-            {
-                if (mat.HasProperty(prop))
-                {
-                    mat.EnableKeyword("_EMISSION");
-                    mat.SetColor(prop, baseColor * emissionMultiplier);
-                }
-            }
-
-            // FALLBACK: If no color property was found, the Shader Graph doesn't support 
-            // standard coloring. Create a fresh URP Lit material that DOES support it.
-            if (!colorSet)
-            {
-                Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
-                if (urpLit != null)
-                {
-                    Material newMat = new Material(urpLit);
-                    newMat.SetColor("_BaseColor", baseColor);
-                    newMat.SetFloat("_Smoothness", 0.6f);
-                    newMat.SetFloat("_Metallic", 0.1f);
-                    newMat.EnableKeyword("_EMISSION");
-                    newMat.SetColor("_EmissionColor", baseColor * emissionMultiplier);
-                    mr.material = newMat;
-                }
-            }
+            // Read current property block, update colors, write back — ZERO allocations
+            mr.GetPropertyBlock(_mpb);
+            _mpb.SetColor(_propBaseColor,     baseColor);
+            _mpb.SetColor(_propColor,         baseColor);
+            _mpb.SetColor(_propEmissionColor, emissionColor);
+            mr.SetPropertyBlock(_mpb);
         }
+        // Line renderers share one material — no per-frame updates needed
+    }
 
-        // --- NEW: Convert the Dyson Rings from Neon to Pure Metallic Tracks ---
-        LineRenderer[] lrs = GetComponentsInChildren<LineRenderer>(true);
-        
-        foreach (var lr in lrs)
-        {
-            if (lr != null)
-            {
-                // Assign a true PBR Lit material to the rings so they react to light instead of glowing
-                if (lr.material == null || lr.material.shader.name != "Universal Render Pipeline/Lit")
-                {
-                    Shader litShader = Shader.Find("Universal Render Pipeline/Lit");
-                    // DO NOT fallback to "Standard" because it will render as Magenta in URP. 
-                    // If URP/Lit is somehow stripped, we will just use Sprites/Default to prevent a visual crash.
-                    if (litShader == null) litShader = Shader.Find("Sprites/Default");
-                    lr.material = new Material(litShader);
-                }
-                
-                lr.material.SetColor("_BaseColor", new Color(0.35f, 0.35f, 0.4f)); // Matte Steel
-                lr.material.SetFloat("_Metallic", 0.6f);
-                lr.material.SetFloat("_Smoothness", 0.2f); // Rough metal: kills the sharp sliding light glints
-                lr.material.DisableKeyword("_EMISSION");
-                lr.material.SetColor("_EmissionColor", Color.black);
-            }
-        }
+    void OnDestroy()
+    {
+        if (_sharedCoreMat != null) Destroy(_sharedCoreMat);
     }
 }

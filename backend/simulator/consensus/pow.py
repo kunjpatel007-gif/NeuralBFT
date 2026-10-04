@@ -44,7 +44,9 @@ class PoWMechanism(BaseConsensus):
                 "hash": block_hash,
                 "proposer": winner.id,
                 "tx_count": random.randint(10, 50),
-                "consensus": "PoW"
+                "consensus": "PoW",
+                "round": network.current_round,
+                "is_rejected": False
             })
                     
         return block_produced

@@ -1,13 +1,4 @@
-# Unity generated folders
-unity/My project/[Ll]ibrary/
-unity/My project/[Tt]emp/
-unity/My project/[Oo]bj/
-unity/My project/[Bb]uild/
-unity/My project/[Bb]uilds/
-unity/My project/[Ll]ogs/
-unity/My project/[Mm]emoryCaptures/
-unity/My project/[Uu]serSettings/
-
+# Unity
 [Ll]ibrary/
 [Tt]emp/
 [Oo]bj/
@@ -15,8 +6,7 @@ unity/My project/[Uu]serSettings/
 [Bb]uilds/
 [Ll]ogs/
 [Uu]serSettings/
-
-# Unity generated files
+[Mm]emoryCaptures/
 *.csproj
 *.unityproj
 *.sln
@@ -31,20 +21,15 @@ unity/My project/[Uu]serSettings/
 *.mdb
 *.opendb
 *.VC.db
-
-# Unity3D generated meta files
 *.pidb.meta
 *.pdb.meta
 *.mdb.meta
-
-# Crash logs
 sysinfo.txt
-*.log
 
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.so
 .Python
 build/
@@ -53,27 +38,23 @@ dist/
 .installed.cfg
 *.egg
 
-# ML Models / Weights
-*.pkl
-*.h5
-*.pb
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
 
-# Environments
+# Virtual Env
 .env
 .venv
 env/
 venv/
 ENV/
 
-# OS specific
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# Data files
-*.npy
-*.pt
-
-# Build Folders
+# Project specifics
 unity_desktop_build/
 unity_web_build/
+BACKUP
+
+# Security & Credentials
+gcp-key.json
+.env
