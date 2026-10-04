@@ -58,3 +58,6 @@ BACKUP
 # Security & Credentials
 gcp-key.json
 .env
+
+# ML Datasets (Keep out of public repo!)
+*.csv
