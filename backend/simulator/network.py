@@ -4,6 +4,10 @@ from .node import Node, Message
 from .consensus.base import BaseConsensus
 
 class NetworkManager:
+    ROUND_SECONDS = 2.0      # main loop tick
+    TPS_WINDOW_ROUNDS = 5    # throughput is averaged over the last N rounds
+    MAX_BLOCKS_KEPT = 100
+
     def __init__(self):
         self.nodes: List[Node] = []
         self.messages_in_flight: List[Message] = []
@@ -15,6 +19,8 @@ class NetworkManager:
         self.current_round += 1
         if self.active_consensus:
             await self.active_consensus.execute_round(self)
+        # latest_blocks is only needed for the ticker/TPS; don't let it grow forever
+        del self.latest_blocks[:-self.MAX_BLOCKS_KEPT]
         
         state = self.get_state()
         return state
@@ -36,8 +42,11 @@ class NetworkManager:
                 break
 
     def get_state(self) -> dict:
-        # Calculate simple TPS based on blocks produced
-        tps = len(self.latest_blocks) * 10 # Example multiplier
+        # TPS = accepted transactions over the last few rounds / elapsed seconds
+        since = self.current_round - self.TPS_WINDOW_ROUNDS
+        recent_tx = sum(b.get("tx_count", 0) for b in self.latest_blocks
+                        if b.get("round", 0) > since and not b.get("is_rejected"))
+        tps = recent_tx / (self.TPS_WINDOW_ROUNDS * self.ROUND_SECONDS)
         return {
             "round": self.current_round,
             "consensus": self.active_consensus.name if self.active_consensus else "None",

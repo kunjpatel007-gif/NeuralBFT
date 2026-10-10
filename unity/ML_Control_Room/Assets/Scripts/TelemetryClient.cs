@@ -5,14 +5,14 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 /// <summary>
-/// Connects to the Python ML Telemetry WebSocket (port 8766).
+/// Connects to the Python backend WebSocket (port 8765) that also carries ML telemetry.
 /// Receives the Random Forest tree structure (once) and live decision paths (every 2s).
 /// Passes data to ForestRenderer for 3D visualization.
 /// </summary>
 public class TelemetryClient : MonoBehaviour
 {
     [Header("Connection")]
-    public string localUrl = "ws://127.0.0.1:8765";
+    public string localUrl = "ws://127.0.0.1:8765"; // backend serves telemetry on the main port
     public string prodUrl = "wss://neuralbft-backend-443293282760.asia-south1.run.app";
     
     [HideInInspector]
@@ -22,7 +22,8 @@ public class TelemetryClient : MonoBehaviour
     public ForestRenderer forestRenderer;
 
     private WebSocket _ws;
-    private bool _treeBuilt = false;
+    private int _treeSignature = 0;       // rebuild the 3D tree whenever the forest is retrained
+    private float _reconnectAt = -1f;
 
 #if UNITY_WEBGL && !UNITY_EDITOR
     [System.Runtime.InteropServices.DllImport("__Internal")]
@@ -43,14 +44,19 @@ public class TelemetryClient : MonoBehaviour
 
         // 2. Auto-Detect Architecture
         bool isLocal = Application.isEditor || Application.absoluteURL.Contains("localhost") || Application.absoluteURL.Contains("127.0.0.1") || Application.absoluteURL.Contains("file:");
-        serverUrl = (isLocal ? localUrl : prodUrl) + "?token=" + token;
-        
+        // A local page may never have visited the login screen; the backend's local default applies
+        if (isLocal && string.IsNullOrEmpty(token)) token = "local_dev_token";
+        // The token is sent as the first message after connecting, never in the URL (URLs end up in logs)
+        serverUrl = isLocal ? localUrl : prodUrl;
+        string authMessage = JsonConvert.SerializeObject(new { type = "auth", token });
+
         Debug.Log($"[Telemetry] Connecting to: {serverUrl}");
         _ws = new WebSocket(serverUrl);
 
         _ws.OnOpen += () =>
         {
-            Debug.Log("<color=#00FF55><b>[ML CONTROL ROOM] Connected to Python Telemetry Server (Port 8766)!</b></color>");
+            _ = _ws.SendText(authMessage);
+            Debug.Log("<color=#00FF55><b>[ML CONTROL ROOM] Connected to Python Telemetry Server (Port 8765)!</b></color>");
         };
 
         _ws.OnError += (e) =>
@@ -61,7 +67,8 @@ public class TelemetryClient : MonoBehaviour
         _ws.OnClose += (e) =>
         {
             Debug.LogWarning("[ML CONTROL ROOM] Disconnected from Telemetry Server.");
-            _treeBuilt = false; // Force rebuild on reconnect
+            _treeSignature = 0; // Force rebuild on reconnect
+            _reconnectAt = Time.time + 3f;
         };
 
         _ws.OnMessage += (bytes) =>
@@ -73,12 +80,23 @@ public class TelemetryClient : MonoBehaviour
         await _ws.Connect();
     }
 
+    async void Reconnect()
+    {
+        try { await _ws.Connect(); }
+        catch (System.Exception ex) { Debug.LogWarning($"[ML] Reconnect failed: {ex.Message}"); _reconnectAt = Time.time + 3f; }
+    }
+
     void Update()
     {
 #if !UNITY_WEBGL || UNITY_EDITOR
         if (_ws != null)
             _ws.DispatchMessageQueue();
 #endif
+        if (_ws != null && _reconnectAt > 0f && Time.time >= _reconnectAt && _ws.State == WebSocketState.Closed)
+        {
+            _reconnectAt = -1f;
+            Reconnect();
+        }
     }
 
     void ProcessTelemetry(string json)
@@ -94,10 +112,11 @@ public class TelemetryClient : MonoBehaviour
                 JArray treeNodes = data["tree_structure"] as JArray;
                 if (treeNodes != null && treeNodes.Count > 0)
                 {
-                    if (!_treeBuilt)
+                    int sig = treeNodes.ToString(Newtonsoft.Json.Formatting.None).GetHashCode();
+                    if (sig != _treeSignature)
                     {
                         forestRenderer.BuildTree(treeNodes);
-                        _treeBuilt = true;
+                        _treeSignature = sig;
                         Debug.Log($"<color=#00AAFF>[ML] Built 3D tree with {treeNodes.Count} nodes</color>");
                     }
                 }
@@ -106,7 +125,7 @@ public class TelemetryClient : MonoBehaviour
                 JObject nodePaths = data["node_paths"] as JObject;
                 if (nodePaths != null)
                 {
-                    forestRenderer.AnimatePaths(nodePaths);
+                    forestRenderer.AnimatePaths(nodePaths, data["node_flags"] as JObject);
                 }
             }
             else if (msgType == "injection_shockwave" && forestRenderer != null)
@@ -120,9 +139,7 @@ public class TelemetryClient : MonoBehaviour
                     foreach (var step in pathArray)
                     {
                         int treeNodeId = step.Value<int>();
-                        Vector3 pos = forestRenderer.GetNodePosition(treeNodeId);
-                        // Only add valid positions (y <= 0 is a quick hack to check validity if root is 0,0,0)
-                        if (pos.y <= 0.1f) 
+                        if (forestRenderer.TryGetNodePosition(treeNodeId, out Vector3 pos))
                             waypoints.Add(pos);
                     }
                     if (waypoints.Count > 1)

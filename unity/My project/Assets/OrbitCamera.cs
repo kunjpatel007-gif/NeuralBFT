@@ -19,20 +19,57 @@ public class OrbitCamera : MonoBehaviour
 
     [Header("Smoothing")]
     public float moveSmoothTime = 0.1f;
+    public float lookSmoothTime = 0.06f; // small, so the view glides without feeling laggy
     
     private float pitch = 0f;
     private float yaw = 0f;
+    private float smoothPitch = 0f;
+    private float smoothYaw = 0f;
     private Vector3 currentVelocity = Vector3.zero;
+
+    [Header("Intro")]
+    [Tooltip("Seconds of the slow glide into the starting view when the scene opens.")]
+    public float introSeconds = 3.2f;
+    private Vector3 introOffset;
+    private float introTime = -1f;
 
     void Start()
     {
         Vector3 euler = transform.eulerAngles;
-        pitch = euler.x;
+        pitch = euler.x > 180f ? euler.x - 360f : euler.x; // keep within -180..180 so the clamp works
         yaw = euler.y;
+        smoothPitch = pitch;
+        smoothYaw = yaw;
+
+        // Open on a slow glide in: start a little further back and higher, then settle
+        if (introSeconds > 0f)
+        {
+            introOffset = -transform.forward * 14f + Vector3.up * 4f;
+            transform.position += introOffset;
+            introTime = 0f;
+        }
+    }
+
+    // Moves the camera along the remainder of the intro glide; flying still works on top of it
+    void UpdateIntro()
+    {
+        if (introTime < 0f) return;
+        float before = Remaining(introTime);
+        introTime += Time.deltaTime;
+        float after = Remaining(introTime);
+        transform.position -= introOffset * (before - after);
+        if (introTime >= introSeconds) introTime = -1f;
+    }
+
+    float Remaining(float time)
+    {
+        float t = Mathf.Clamp01(time / introSeconds);
+        return 1f - t * t * t * (t * (t * 6f - 15f) + 10f); // smootherstep, so it starts and lands softly
     }
 
     void Update()
     {
+        UpdateIntro();
         if (Mouse.current == null || Keyboard.current == null) return;
 
         // 1. Look Around
@@ -42,7 +79,10 @@ public class OrbitCamera : MonoBehaviour
             pitch -= Mouse.current.delta.y.ReadValue() * lookSensitivity;
             pitch = Mathf.Clamp(pitch, -89f, 89f);
         }
-        transform.rotation = Quaternion.Euler(pitch, yaw, 0f);
+        float lookEase = lookSmoothTime > 0f ? 1f - Mathf.Exp(-Time.deltaTime / lookSmoothTime) : 1f;
+        smoothPitch = Mathf.Lerp(smoothPitch, pitch, lookEase);
+        smoothYaw = Mathf.Lerp(smoothYaw, yaw, lookEase);
+        transform.rotation = Quaternion.Euler(smoothPitch, smoothYaw, 0f);
 
         // 2. Move
         Vector3 inputDir = Vector3.zero;
@@ -66,7 +106,8 @@ public class OrbitCamera : MonoBehaviour
 
         // 3. Smooth Velocity (Eliminates the stopping jerk)
         Vector3 targetVelocity = inputDir * speed;
-        currentVelocity = Vector3.Lerp(currentVelocity, targetVelocity, Time.deltaTime * (1f / moveSmoothTime));
+        float moveEase = moveSmoothTime > 0f ? 1f - Mathf.Exp(-Time.deltaTime / moveSmoothTime) : 1f;
+        currentVelocity = Vector3.Lerp(currentVelocity, targetVelocity, moveEase); // frame-rate independent
         
         transform.position += currentVelocity * Time.deltaTime;
 
@@ -77,4 +118,4 @@ public class OrbitCamera : MonoBehaviour
             currentVelocity = Vector3.zero; // Kill momentum if hitting the wall
         }
     }
-}
+}

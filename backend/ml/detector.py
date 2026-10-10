@@ -2,9 +2,19 @@ import numpy as np
 import os
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
-from google.cloud import storage
 
-# Expanded to 11 features for Temporal Fusion
+
+def _gcs_enabled() -> bool:
+    """Cloud Storage sync is for the deployed backend only. It is on by default on
+    Cloud Run (which always sets K_SERVICE) and off everywhere else, so a local run
+    never contacts Google and only ever reads the local CSV. USE_GCS=1 or USE_GCS=0
+    overrides the default either way."""
+    flag = os.environ.get("USE_GCS")
+    if flag is not None:
+        return flag.strip().lower() in ("1", "true", "yes", "on")
+    return bool(os.environ.get("K_SERVICE"))
+
+# 13 features: 5 base + 6 temporal deltas/ratios + invalid_hash_rate + identity_age_score
 FEATURE_NAMES = [
     'msg_freq', 'vote_inconsistency', 'latency', 'fork_attempts', 'silence_ratio',
     'msg_freq_delta', 'latency_delta', 'vote_drift_delta', 'silence_delta',
@@ -37,7 +47,14 @@ class ByzantineDetector:
         self._initialize_dataset()
         
     def _init_gcs(self):
+        self.storage_client = None
+        self.bucket = None
+        if not _gcs_enabled():
+            print("GCS disabled (local mode) - using the local CSV only.")
+            return
+
         import time
+        from google.cloud import storage
         key_path = os.path.join(os.path.dirname(__file__), '..', 'gcp-key.json')
         max_attempts = 3 if not os.path.exists(key_path) else 1
         for attempt in range(1, max_attempts + 1):
@@ -53,6 +70,7 @@ class ByzantineDetector:
                 self.bucket = self.storage_client.bucket(self.bucket_name)
                 blob = self.bucket.blob('master_training_data_ORGANIC.csv')
                 if blob.exists():
+                    self._backup_local_csv_if_different(blob)
                     blob.download_to_filename(self.csv_path)
                     print(f"GCS SUCCESS: Downloaded CSV (attempt {attempt})")
                 else:
@@ -70,6 +88,24 @@ class ByzantineDetector:
                     print("GCS permanently unavailable - running local-only mode.")
                     self.storage_client = None
                     self.bucket = None
+    def _backup_local_csv_if_different(self, blob):
+        """The bucket copy overwrites the local CSV on startup. Keep a timestamped
+        local copy first so hand-curated training data can never be lost."""
+        try:
+            if not os.path.exists(self.csv_path):
+                return
+            import base64, hashlib, shutil, time
+            blob.reload()
+            with open(self.csv_path, 'rb') as fh:
+                local_md5 = base64.b64encode(hashlib.md5(fh.read()).digest()).decode()
+            if local_md5 != blob.md5_hash:
+                stamp = time.strftime('%Y%m%d-%H%M%S')
+                dst = self.csv_path[:-4] + f'.local-backup-{stamp}.csv'
+                shutil.copy2(self.csv_path, dst)
+                print(f"GCS: local CSV differs from bucket copy; backed up to {os.path.basename(dst)}")
+        except Exception as e:
+            print(f"GCS: could not back up local CSV before download: {e}")
+
     def _initialize_dataset(self):
         """Loads the CSV if it exists. If it has fewer columns than expected (old schema),
         auto-migrates it by adding new feature columns with sensible defaults.
@@ -358,16 +394,25 @@ class ByzantineDetector:
             return {"type": "tree_structure", "nodes": []}
             
         tree_ = self.nn.estimators_[0].tree_
+        # Column of the "Byzantine" class in tree_.value (classes are e.g. [0, 1] or [False, True])
+        classes = list(getattr(self.nn, "classes_", []))
+        byz_col = next((k for k, c in enumerate(classes) if c in (1, True, "1", "byzantine")), len(classes) - 1)
         nodes = []
         for i in range(tree_.node_count):
             feature_idx = tree_.feature[i]
+            # Visual-only extras for the 3D tree: how much training data reaches this node, and
+            # the share of it that is Byzantine (the leaf's verdict)
+            counts = tree_.value[i][0]
+            total = float(counts.sum())
             nodes.append({
                 "id": i,
                 "left": int(tree_.children_left[i]),
                 "right": int(tree_.children_right[i]),
                 "feature": FEATURE_NAMES[feature_idx] if feature_idx >= 0 else "LEAF",
                 "threshold": float(tree_.threshold[i]),
-                "is_leaf": bool(feature_idx < 0)
+                "is_leaf": bool(feature_idx < 0),
+                "samples": int(tree_.n_node_samples[i]),
+                "byzantine": float(counts[byz_col] / total) if total > 0 and byz_col >= 0 else 0.0
             })
         return {"type": "tree_structure", "nodes": nodes}
 

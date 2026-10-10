@@ -2,6 +2,9 @@ using UnityEngine;
 using System.Collections.Generic;
 using System.Linq;
 
+/// <summary>
+/// The floating reputation leaderboard: a glass panel listing every node, best first.
+/// </summary>
 public class LeaderboardManager : MonoBehaviour
 {
     public GameObject rowPrefab;
@@ -30,7 +33,7 @@ public class LeaderboardManager : MonoBehaviour
             transform.position = new Vector3(14f, 8f, 0f);
         }
 
-        // 3. Dark glass aesthetic - Scorch any teal backgrounds on ALL panel children!
+        // 3. Glass panel look: clear any leftover tints on the panel's images
         var allImages = GetComponentsInChildren<UnityEngine.UI.Image>(true);
         foreach (var img in allImages)
         {
@@ -56,11 +59,11 @@ public class LeaderboardManager : MonoBehaviour
         {
             if (tmp.GetComponentInParent<LeaderboardRow>() == null)
             {
-                ColorUtility.TryParseHtmlString("#e8e8ea", out Color titleColor);
-                tmp.color = titleColor; 
+                tmp.color = ArenaTheme.TextMuted;
                 tmp.fontStyle = TMPro.FontStyles.Normal;
-                tmp.fontSize = 24f; // Clean, modern typography
-                tmp.alignment = TMPro.TextAlignmentOptions.Center; // Put heading in the center
+                tmp.fontSize = 22f;
+                tmp.characterSpacing = 14f; // airy, small-caps style heading
+                tmp.alignment = TMPro.TextAlignmentOptions.Center;
             }
         }
 
@@ -124,4 +127,4 @@ public class LeaderboardManager : MonoBehaviour
             rows[i].UpdateData(sortedNodes[i], i);
         }
     }
-}
+}

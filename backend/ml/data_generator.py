@@ -1,3 +1,5 @@
+"""DEPRECATED: legacy synthetic data generator. The live detector (backend/ml/detector.py)
+trains itself from master_training_data_ORGANIC.csv. Not used by the app."""
 import pandas as pd
 import numpy as np
 import os

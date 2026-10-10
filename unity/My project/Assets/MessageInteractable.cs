@@ -2,6 +2,9 @@ using UnityEngine;
 using TMPro;
 using System.Collections.Generic;
 
+/// <summary>
+/// Click a message in flight to see its ML payload in a small floating card.
+/// </summary>
 public class MessageInteractable : MonoBehaviour
 {
     public string senderId;
@@ -13,20 +16,28 @@ public class MessageInteractable : MonoBehaviour
 
     void OnDestroy()
     {
-        // Clean up the un-parented popup when the message dies
+        ClosePopup();
+    }
+
+    /// <summary>Closes the payload card, e.g. when the message arrives and is recycled.</summary>
+    public void ClosePopup()
+    {
+        // The popup is un-parented, so it has to be cleaned up explicitly
         if (popup != null) Destroy(popup);
+        popup = null;
     }
 
     void OnMouseDown()
     {
         // PERFORMANCE: Only allow clicking if the camera is zoomed in close (within 15 units)
         // This prevents accidental clicks and reduces clutter when looking at the whole network.
-        if (Vector3.Distance(Camera.main.transform.position, transform.position) > 15f) return;
+        Camera cam = Camera.main;
+        if (cam == null || Vector3.Distance(cam.transform.position, transform.position) > 15f) return;
 
         // Toggle logic: If it's already open, clicking closes it
         if (popup != null) 
         {
-            Destroy(popup);
+            ClosePopup();
             return;
         }
 
@@ -37,29 +48,30 @@ public class MessageInteractable : MonoBehaviour
         var tmp = popup.AddComponent<TextMeshPro>();
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.fontSize = 1.4f; 
-        
-        // Multiplied brightness by 6.0x (doubled from 3.0x). Massive HDR bloom!
-        tmp.color = new Color(6.0f, 6.0f, 6.0f, 1.0f);
-        
-        tmp.fontStyle = FontStyles.Bold; // Make it thicker to stand out
+        tmp.color = ArenaTheme.TextPrimary; // bright enough to read, not enough to glare
+        tmp.fontStyle = FontStyles.Bold;
 
-        // Build the text payload with a dark background <mark> tag for perfect readability
-        string text = $"<mark=#0a0a0cD0><color=#00FFFF>[{msgType}]</color> {senderId.ToUpper()}\n";
-        text += $"<size=80%>--------------------</size>\n";
-        text += $"THREAT: <color=#FF4500>{(mlThreat * 100f):F1}%</color>\n";
-        
+        string accent = ArenaTheme.Hex(ArenaTheme.Accent);
+        string muted  = ArenaTheme.Hex(ArenaTheme.TextMuted);
+        string warm   = ArenaTheme.Hex(ArenaTheme.Watched);
+        string threat = ArenaTheme.Hex(Color.Lerp(ArenaTheme.Trusted, ArenaTheme.Quarantined, Mathf.Clamp01(mlThreat)));
+
+        // A dark <mark> behind the text keeps it readable against anything
+        string text = $"<mark=#0a0e18D8><color=#{accent}>{msgType}</color>  {(senderId ?? "").ToUpper()}\n";
+        text += $"<size=85%><color=#{muted}>THREAT</color> <color=#{threat}>{(mlThreat * 100f):F1}%</color>\n";
+
         if (mlFeatures != null && mlFeatures.Count > 0)
         {
             float freq = mlFeatures.ContainsKey("msg_freq") ? mlFeatures["msg_freq"] : 0f;
             float lat = mlFeatures.ContainsKey("latency") ? mlFeatures["latency"] : 0f;
-            text += $"<color=#e8e8ea>FRQ: <color=#FFD700>{freq:F0}</color> | LAT: <color=#FFD700>{lat:F0}ms</color></color>";
+            text += $"<color=#{muted}>FRQ</color> <color=#{warm}>{freq:F0}</color>   <color=#{muted}>LAT</color> <color=#{warm}>{lat:F0}ms</color>";
         }
         else
         {
-            text += "<color=#e8e8ea>NO ML DATA</color>";
+            text += $"<color=#{muted}>NO ML DATA</color>";
         }
-        
-        text += "</mark>";
+
+        text += "</size></mark>";
         tmp.text = text;
 
         // Add the custom tracker script so it perfectly hovers without inheriting spin

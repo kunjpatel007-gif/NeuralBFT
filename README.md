@@ -92,14 +92,13 @@ cd NeuralBFT
 pip install -r requirements.txt
 ```
 
-**Generate the training dataset and train the ML model (first-time setup):**
+**ML model:** no manual training step is needed. On startup the detector trains from
+`backend/ml/master_training_data_ORGANIC.csv` (and bootstraps synthetic data only if no CSV exists).
+`data_generator.py` / `train.py` are legacy and unused. If the GCS bucket copy differs from your local
+CSV, the local file is backed up to `*.local-backup-<timestamp>.csv` before being replaced.
 
-```bash
-python backend/ml/data_generator.py
-python backend/ml/train.py
-```
-
-The detector will also bootstrap itself automatically on first run if no `master_training_data.csv` is found.
+**Security:** set the `ADMIN_TOKEN` environment variable in production; without it the server falls back to the
+public default token `local_dev_token` (a warning is logged).
 
 ### Web Frontend
 

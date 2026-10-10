@@ -2,82 +2,101 @@ using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
 
+/// <summary>
+/// One line of the leaderboard: rank and node id, status, and a reputation bar that
+/// glides to its new value and colour instead of jumping.
+/// </summary>
 public class LeaderboardRow : MonoBehaviour
 {
     public TextMeshProUGUI idText;
     public TextMeshProUGUI statusText;
     public Image reputationBar;
 
+    private float _targetFill = -1f;
+    private Color _targetColor = ArenaTheme.Verified;
+
     void Start()
     {
         var hlg = gameObject.GetComponent<HorizontalLayoutGroup>();
         if (hlg != null) Destroy(hlg);
 
-        // Make row fully transparent to avoid ugly edges and just sit cleanly on the main panel
+        // Rows are fully transparent and sit cleanly on the main panel
         var rootImg = gameObject.GetComponent<Image>();
         if (rootImg != null) Destroy(rootImg);
 
         if (idText != null)
         {
-            RectTransform rt = idText.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(-220, 0); // Kept wide left
-            rt.sizeDelta = new Vector2(250, 40); // Increased width so it doesn't wrap
+            Place(idText.rectTransform, -220, new Vector2(250, 40));
             idText.alignment = TextAlignmentOptions.Left;
-            ColorUtility.TryParseHtmlString("#e8e8ea", out Color idColor);
-            idText.color = idColor;
-            idText.fontStyle = FontStyles.Bold;
+            idText.color = ArenaTheme.TextPrimary;
+            idText.fontStyle = FontStyles.Normal;
+            idText.richText = true;
         }
 
         if (statusText != null)
         {
-            RectTransform rt = statusText.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(30, 0); // Pushed a bit left
-            rt.sizeDelta = new Vector2(350, 40); // Extra width for formatting
+            Place(statusText.rectTransform, 30, new Vector2(350, 40));
             statusText.alignment = TextAlignmentOptions.Left;
             statusText.fontStyle = FontStyles.Normal;
+            statusText.richText = true;
         }
 
         if (reputationBar != null)
         {
-            RectTransform rt = reputationBar.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(250, 0);
-            // Increased thickness from 8 to 14 so the bars look substantial, not like tiny scratches
-            rt.sizeDelta = new Vector2(180, 14);
+            Place(reputationBar.rectTransform, 250, new Vector2(180, 12));
             reputationBar.material = null;
+
+            // A dim track behind the bar, so its full length is always readable
+            var track = new GameObject("Track", typeof(RectTransform)).AddComponent<Image>();
+            track.transform.SetParent(reputationBar.transform.parent, false);
+            track.transform.SetSiblingIndex(reputationBar.transform.GetSiblingIndex());
+            Place(track.rectTransform, 250, new Vector2(180, 12));
+            track.sprite = reputationBar.sprite;
+            track.color = ArenaTheme.WithAlpha(ArenaTheme.TextPrimary, 0.08f);
+            track.raycastTarget = false;
         }
+    }
+
+    static void Place(RectTransform rt, float x, Vector2 size)
+    {
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(x, 0);
+        rt.sizeDelta = size;
     }
 
     public void UpdateData(NodeData data, int index = 0)
     {
-        if (idText != null) idText.text = data.id.ToUpper();
-        
         string stat = (data.status ?? "").ToUpper();
-        // Add a bit of space before the percentage for cleanliness
-        if (statusText != null) statusText.text = $"{stat}   ({data.reputation:F1}%)";
-        
-        Color statColor = Color.white;
-        if (stat == "TRUSTED") ColorUtility.TryParseHtmlString("#00FF55", out statColor); // Emerald Green
-        else if (stat == "VERIFIED") ColorUtility.TryParseHtmlString("#00FFFF", out statColor); // Hyper-Cyan
-        else if (stat == "WATCHED" || stat == "HIGH RISK") ColorUtility.TryParseHtmlString("#FFD700", out statColor); // Neon Gold
-        else if (stat == "QUARANTINED") ColorUtility.TryParseHtmlString("#FF4500", out statColor); // Pulsing Orange
-        else if (stat == "BLACKLISTED") ColorUtility.TryParseHtmlString("#FF0000", out statColor); // Aggressive Red
-        else ColorUtility.TryParseHtmlString("#00FFFF", out statColor); // Default Cyan
+        Color statColor = ArenaTheme.StatusColor(data.status);
+        string muted = ArenaTheme.Hex(ArenaTheme.TextMuted);
 
-        if (statusText != null) statusText.color = statColor;
-        if (reputationBar != null)
+        if (idText != null)
+            idText.text = $"<color=#{muted}>{index + 1:00}</color>   <b>{data.id.ToUpper()}</b>";
+
+        if (statusText != null)
         {
-            reputationBar.color = statColor;
-            // Force a minimum fill of 2% so the visual bar never completely disappears!
-            reputationBar.fillAmount = Mathf.Max(0.02f, data.reputation / 100f);
+            statusText.text = $"{stat}   <color=#{muted}>{data.reputation:F1}%</color>";
+            statusText.color = statColor;
         }
+
+        // A minimum fill of 2% keeps the bar from disappearing completely
+        float fill = Mathf.Max(0.02f, data.reputation / 100f);
+        if (reputationBar != null && _targetFill < 0f)
+        {
+            // First update: start in place rather than animating from empty
+            reputationBar.fillAmount = fill;
+            reputationBar.color = statColor;
+        }
+        _targetFill = fill;
+        _targetColor = statColor;
+    }
+
+    void Update()
+    {
+        if (reputationBar == null || _targetFill < 0f) return;
+
+        float ease = ArenaFX.Damp(5f, Time.deltaTime);
+        reputationBar.fillAmount = Mathf.Lerp(reputationBar.fillAmount, _targetFill, ease);
+        reputationBar.color = Color.Lerp(reputationBar.color, _targetColor, ease);
     }
 }

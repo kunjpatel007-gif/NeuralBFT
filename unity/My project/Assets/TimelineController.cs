@@ -15,15 +15,15 @@ public class TimelineController : MonoBehaviour
 
     void Awake()
     {
-        _networkManager = FindObjectOfType<NetworkManager>();
+        _networkManager = FindAnyObjectByType<NetworkManager>();
 
         // Cache the GUIStyle once — NEVER allocate inside OnGUI
         _rewindStyle = new GUIStyle
         {
-            fontSize  = 24,
-            fontStyle = FontStyle.Bold
+            fontSize  = 18,
+            fontStyle = FontStyle.Normal
         };
-        _rewindStyle.normal.textColor = Color.red;
+        _rewindStyle.normal.textColor = ArenaTheme.Watched; // amber: noticeable without shouting
     }
     
     void Update()
@@ -51,7 +51,7 @@ public class TimelineController : MonoBehaviour
         if (IsRewinding)
             // Use cached style — zero allocations per frame
             GUI.Label(new Rect(20, Screen.height - 40, 800, 40),
-                $"[ TIMELINE REWIND ] {GetCurrentRoundLabel()}  (Use L-CTRL / L-ALT)",
+                $"TIMELINE  |  {GetCurrentRoundLabel()}  |  L-CTRL back / L-ALT forward / T live",
                 _rewindStyle);
     }
 

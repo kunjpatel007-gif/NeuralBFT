@@ -27,12 +27,12 @@
       var loadingBar = document.querySelector("#unity-loading-bar");
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
 
-      var buildUrl = "Build";
-      var loaderUrl = buildUrl + "/unity_web_build.loader.js";
+      var buildUrl = "Build/Build";
+      var loaderUrl = buildUrl + "/Build.loader.js";
       var config = {
-        dataUrl: buildUrl + "/unity_web_build.data",
-        frameworkUrl: buildUrl + "/unity_web_build.framework.js",
-        codeUrl: buildUrl + "/unity_web_build.wasm",
+        dataUrl: buildUrl + "/Build.data.br",
+        frameworkUrl: buildUrl + "/Build.framework.js.br",
+        codeUrl: buildUrl + "/Build.wasm.br",
         streamingAssetsUrl: "StreamingAssets",
         companyName: "DefaultCompany",
         productName: "NeuralBFT",

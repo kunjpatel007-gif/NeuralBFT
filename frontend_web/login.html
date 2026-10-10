@@ -2,59 +2,106 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
     <title>Consensus Arena - Login</title>
+    <link rel="icon" href="favicon-2d.svg" type="image/svg+xml">
     <style>
+        :root { color-scheme: dark; --accent: #739ec7; --red: #dd6a6a; }
+        * { box-sizing: border-box; }
         body {
-            background-color: #0d1117;
-            color: #c9d1d9;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
+            background: #0b0c0e radial-gradient(60vmax 60vmax at 20% 0%, rgba(115,158,199,.08), transparent 60%);
+            color: #e6e8eb;
+            font: 14px/1.5 "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex; justify-content: center; align-items: center;
+            min-height: 100vh; margin: 0;
         }
         .login-box {
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-radius: 6px;
-            padding: 32px;
-            width: 320px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            width: min(340px, calc(100vw - 32px)); padding: 32px;
+            background: rgba(20,21,24,.8); border: 1px solid #222328; border-radius: 14px;
+            box-shadow: 0 24px 60px -20px rgba(0,0,0,.8);
+            animation: rise .6s cubic-bezier(.22,.8,.24,1) both;
         }
-        h2 { text-align: center; margin-top: 0; font-weight: 300; }
+        @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        h2 { margin: 0 0 4px; font-weight: 500; font-size: 18px; text-align: center; }
+        p.sub { margin: 0 0 20px; text-align: center; color: #8b9097; font-size: 12.5px; }
         input[type="password"] {
-            width: 100%; padding: 8px; margin: 16px 0;
-            background-color: #0d1117; border: 1px solid #30363d;
-            color: #c9d1d9; border-radius: 4px; box-sizing: border-box;
+            width: 100%; height: 40px; padding: 0 12px; margin: 0 0 12px;
+            background: #18191d; border: 1px solid #222328; border-radius: 9px;
+            color: inherit; font: inherit; outline: none; transition: border-color .2s;
         }
+        input[type="password"]:focus { border-color: var(--accent); }
         button {
-            width: 100%; padding: 8px; background-color: #238636;
-            color: #ffffff; border: none; border-radius: 4px;
-            cursor: pointer; font-weight: 600;
+            width: 100%; height: 40px; border: 1px solid rgba(115,158,199,.4); border-radius: 9px;
+            background: rgba(115,158,199,.16); color: inherit; font: inherit; font-weight: 500;
+            cursor: pointer; transition: background .2s, border-color .2s;
         }
-        button:hover { background-color: #2ea043; }
-        .error { color: #ff7b72; font-size: 12px; text-align: center; display: none; margin-bottom: 10px;}
+        button:hover:not(:disabled) { background: rgba(115,158,199,.26); border-color: var(--accent); }
+        button:disabled { opacity: .6; cursor: default; }
+        .error { color: var(--red); font-size: 12.5px; text-align: center; min-height: 18px; margin-bottom: 8px; }
     </style>
 </head>
 <body>
-    <div class="login-box">
+    <form class="login-box" id="login-form" autocomplete="off">
         <h2>System Access</h2>
-        <div id="error-msg" class="error">Invalid Access Token</div>
-        <input type="password" id="token-input" placeholder="Enter Access Token" onkeypress="if(event.key === 'Enter') login()">
-        <button onclick="login()">Authenticate</button>
-    </div>
+        <p class="sub">Consensus Arena</p>
+        <div id="error-msg" class="error" role="alert"></div>
+        <input type="password" id="token-input" placeholder="Enter Access Token" autocomplete="off" required>
+        <button type="submit" id="login-btn">Authenticate</button>
+    </form>
     <script>
-        function login() {
-            const token = document.getElementById('token-input').value;
-            // Extremely basic client-side check just to route them, the REAL security is in the WebSocket backend.
-            if (token.length > 5) {
-                localStorage.setItem('arena_token', token);
-                window.location.href = 'index.html';
-            } else {
-                document.getElementById('error-msg').style.display = 'block';
-            }
-        }
+        'use strict';
+        // The access token is checked by the backend, which answers with a short-lived session
+        // token. Only that session is stored in the browser; the access token itself never is,
+        // and it never appears in a URL. Repeated wrong guesses are locked out by the backend.
+        const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.protocol === 'file:';
+        // ?ws= only works locally, so a crafted link cannot send the access token to another server
+        const WS_BASE = (isLocal && new URLSearchParams(location.search).get('ws')) ||
+                        (isLocal ? 'ws://127.0.0.1:8765' : 'wss://neuralbft-backend-443293282760.asia-south1.run.app');
+
+        const form = document.getElementById('login-form');
+        const input = document.getElementById('token-input');
+        const button = document.getElementById('login-btn');
+        const error = document.getElementById('error-msg');
+
+        function showError(text) { error.textContent = text; }
+
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const password = input.value;
+            if (password.length < 6) { showError('Invalid access token'); return; }
+
+            showError('');
+            button.disabled = true;
+            button.textContent = 'Checking…';
+            let loggedIn = false;
+
+            let socket;
+            try { socket = new WebSocket(WS_BASE); }
+            catch (e) { showError('Server unreachable. Try again.'); button.disabled = false; button.textContent = 'Authenticate'; return; }
+
+            socket.onopen = () => socket.send(JSON.stringify({ type: 'login', password }));
+            socket.onmessage = (msg) => {
+                let data = null;
+                try { data = JSON.parse(msg.data); } catch (e) { return; }
+                if (data && data.type === 'session' && typeof data.token === 'string') {
+                    loggedIn = true;
+                    localStorage.setItem('arena_token', data.token);
+                    localStorage.setItem('arena_token_expires', String(Date.now() + (Number(data.expires_in) || 7200) * 1000));
+                    localStorage.setItem('last_active_time', Date.now().toString());
+                    window.location.replace('index.html');
+                }
+            };
+            socket.onclose = (event) => {
+                if (loggedIn) return;
+                input.value = '';
+                button.disabled = false;
+                button.textContent = 'Authenticate';
+                if (event.reason === 'Too many attempts') showError('Too many attempts. Try again later.');
+                else if (event.code === 1008) showError('Invalid access token');
+                else showError('Server unreachable. Try again.');
+            };
+        });
     </script>
 </body>
 </html>

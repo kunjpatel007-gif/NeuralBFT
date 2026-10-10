@@ -180,14 +180,13 @@ async def main():
                             target_node = next((n for n in network.nodes if n.id == node_id), None)
                             if target_node and hasattr(target_node, 'ml_features') and target_node.ml_features:
                                 path_data = detector.get_decision_path(target_node.ml_features)["path"]
-                                # Fire-and-forget broadcast via create_task so we don't block the loop
                                 shockwave_msg = {
                                     "type": "injection_shockwave",
                                     "node_id": node_id,
                                     "fault_type": fault_type,
                                     "path": path_data
                                 }
-                                asyncio.create_task(server.broadcast_state(shockwave_msg))
+                                await server.broadcast_state(shockwave_msg)  # non-blocking broadcast
                 elif action == "switch_consensus":
                     consensus_name = cmd.get("consensus")
                     if consensus_name in consensus_map:
@@ -212,6 +211,9 @@ async def main():
                 elif action == "remove_node":
                     if len(network.nodes) > 4:
                         removed = network.nodes.pop()
+                        # drop stale per-node state so a reused id doesn't inherit it
+                        reputation_manager.history.pop(removed.id, None)
+                        reputation_manager.state.pop(removed.id, None)
                         logging.info(f"Removed node {removed.id}")
                 elif action == 'sybil_swarm':
                     count = min(cmd.get('count', 5), 10)
@@ -254,7 +256,7 @@ async def main():
                         heal_features.setdefault('freq_spike_ratio', 1.0)
                         heal_features.setdefault('lat_spike_ratio', 1.0)
 
-                        count = detector.train_online(heal_features, is_byzantine=0)
+                        count = await asyncio.to_thread(detector.train_online, heal_features, 0)  # retrain off the event loop
 
                         # Instant Bayesian Heal: Hard-reset alpha/beta to a clean Trusted baseline.
                         # Gentle increments (alpha+=15) are useless against a beta=100-200 criminal record.
@@ -290,7 +292,7 @@ async def main():
                         punish_features.setdefault('freq_spike_ratio', 3.0)
                         punish_features.setdefault('lat_spike_ratio', 5.0)
 
-                        count = detector.train_online(punish_features, is_byzantine=1)
+                        count = await asyncio.to_thread(detector.train_online, punish_features, 1)  # retrain off the event loop
                         
                         # Instant Bayesian Punish: Hard-reset to Quarantined/Blacklisted.
                         # Gentle increments (beta+=20) are useless if a node built up alpha=100.
@@ -327,6 +329,9 @@ async def main():
                                 "fork_attempts": max(0, int(_rand.gauss(3, 1.5))),
                                 "silence_ratio": _rand.uniform(0.1, 0.5),
                             }
+                    elif fault_type == "state_tampering":
+                        # behaviourally normal; only invalid_hash_rate (added below) gives it away
+                        round_features[node.id] = generate_honest_telemetry(node)
                     else:
                         round_features[node.id] = {
                             "msg_freq": _rand.gauss(120, 20),
@@ -361,7 +366,8 @@ async def main():
                 ml_payload = {
                     "type": "telemetry_update",
                     "tree_structure": detector.export_tree_structure()["nodes"],
-                    "node_paths": {}
+                    "node_paths": {},
+                    "node_flags": {n.id: bool(n.is_byzantine) for n in network.nodes}
                 }
                 for node in network.nodes:
                     if hasattr(node, "ml_features") and node.ml_features:

@@ -1,76 +1,79 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// Turns an Image into a flat instrument panel: near-square corners, a dark graphite fill and a
+/// hairline off-white border, slightly stronger along the top edge. The sprite is generated once,
+/// anti-aliased, and shared by every panel.
+/// </summary>
 [RequireComponent(typeof(Image))]
 public class SciFiPanel : MonoBehaviour
 {
+    private const int Size = 128;
+    private const float CornerRadius = 5f;
+
     private static Sprite _cachedSprite;
 
     void Start()
     {
         Image img = GetComponent<Image>();
-        
+
         if (_cachedSprite == null)
         {
-            _cachedSprite = CreateSciFiSprite(128, 128, 16);
+            _cachedSprite = CreatePanelSprite();
         }
-        
+
         img.sprite = _cachedSprite;
         img.type = Image.Type.Sliced;
     }
 
-    private Sprite CreateSciFiSprite(int width, int height, int cornerSize)
+    private static Sprite CreatePanelSprite()
     {
-        Texture2D tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
-        Color bgColor = new Color(0.04f, 0.04f, 0.05f, 0.95f); // Deep dark glass #0a0a0c
-        Color scanlineColor = new Color(0.0f, 0.0f, 0.0f, 0.3f);
-        Color outlineColor = new Color(0.3f, 0.3f, 0.3f, 0.5f);
-        Color clear = new Color(0, 0, 0, 0);
-
-        for (int x = 0; x < width; x++)
+        var tex = new Texture2D(Size, Size, TextureFormat.RGBA32, false)
         {
-            for (int y = 0; y < height; y++)
+            name = "Arena Panel",
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear,
+        };
+
+        Color glassTop    = new Color(0.072f, 0.076f, 0.084f);
+        Color glassBottom = new Color(0.048f, 0.051f, 0.057f);
+        Color border      = ArenaTheme.TextPrimary;
+        var pixels = new Color[Size * Size];
+        float half = Size * 0.5f;
+
+        for (int y = 0; y < Size; y++)
+        {
+            for (int x = 0; x < Size; x++)
             {
-                // Chamfered corners math (cut off corners)
-                bool isTopLeft = (x < cornerSize && y > height - cornerSize - 1) && (x + (height - y - 1) < cornerSize);
-                bool isTopRight = (x > width - cornerSize - 1 && y > height - cornerSize - 1) && ((width - x - 1) + (height - y - 1) < cornerSize);
-                bool isBottomLeft = (x < cornerSize && y < cornerSize) && (x + y < cornerSize);
-                bool isBottomRight = (x > width - cornerSize - 1 && y < cornerSize) && ((width - x - 1) + y < cornerSize);
+                // Signed distance to a rounded rectangle: negative inside, in pixels
+                float dx = Mathf.Abs(x + 0.5f - half) - (half - CornerRadius);
+                float dy = Mathf.Abs(y + 0.5f - half) - (half - CornerRadius);
+                float outside = new Vector2(Mathf.Max(dx, 0f), Mathf.Max(dy, 0f)).magnitude;
+                float distance = outside + Mathf.Min(Mathf.Max(dx, dy), 0f) - CornerRadius;
 
-                if (isTopLeft || isTopRight || isBottomLeft || isBottomRight)
-                {
-                    tex.SetPixel(x, y, clear);
-                    continue;
-                }
+                float coverage = Mathf.Clamp01(0.5f - distance);                 // anti-aliased edge
+                float rim = Mathf.Clamp01(1f - Mathf.Abs(distance + 1.25f));     // 1px line just inside it
+                float glow = 0f; // flat: no inner bleed
 
-                // Outline logic
-                bool isBorder = false;
-                if (x == 0 || x == width - 1 || y == 0 || y == height - 1) isBorder = true;
-                
-                // Chamfer borders
-                if (x + (height - y - 1) == cornerSize && x < cornerSize) isBorder = true;
-                if ((width - x - 1) + (height - y - 1) == cornerSize && x > width - cornerSize - 1) isBorder = true;
-                if (x + y == cornerSize && x < cornerSize) isBorder = true;
-                if ((width - x - 1) + y == cornerSize && x > width - cornerSize - 1) isBorder = true;
+                float v = y / (float)(Size - 1);
+                Color color = Color.Lerp(glassBottom, glassTop, v);
 
-                if (isBorder)
-                {
-                    tex.SetPixel(x, y, outlineColor);
-                }
-                else
-                {
-                    // Scanline texture (every 3rd row is darker)
-                    if (y % 3 == 0)
-                        tex.SetPixel(x, y, new Color(bgColor.r - 0.02f, bgColor.g - 0.02f, bgColor.b - 0.02f, bgColor.a));
-                    else
-                        tex.SetPixel(x, y, bgColor);
-                }
+                // The border is brightest along the top edge, like light catching glass
+                float rimStrength = rim * Mathf.Lerp(0.16f, 0.42f, v * v);
+                color = Color.Lerp(color, border, Mathf.Clamp01(rimStrength + glow * v));
+
+                color.a = coverage * 0.9f;
+                pixels[y * Size + x] = color;
             }
         }
-        tex.Apply();
 
-        // 9-slice borders so it stretches nicely
-        Vector4 borders = new Vector4(cornerSize + 2, cornerSize + 2, cornerSize + 2, cornerSize + 2);
-        return Sprite.Create(tex, new Rect(0, 0, width, height), new Vector2(0.5f, 0.5f), 100, 0, SpriteMeshType.FullRect, borders);
+        tex.SetPixels(pixels);
+        tex.Apply(false, true);
+
+        // 9-slice borders so it stretches without distorting the corners
+        float slice = CornerRadius + 4f;
+        return Sprite.Create(tex, new Rect(0, 0, Size, Size), new Vector2(0.5f, 0.5f), 100, 0,
+                             SpriteMeshType.FullRect, new Vector4(slice, slice, slice, slice));
     }
 }

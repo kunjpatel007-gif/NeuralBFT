@@ -7,28 +7,46 @@
   <link rel="icon" href="favicon-2d.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="exitImmersiveHint">Press ESC to exit Immersive Mode</div>
 
+<!-- Slow ambient backdrop (decorative only) -->
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+
 <header class="top">
-  <span class="name">Consensus Arena</span>
-  <span class="stat">Round <b id="round">0</b></span>
-  <span class="stat"><b id="consensus">-</b></span>
-  <span class="stat"><b id="nodeCount">0</b> nodes</span>
-  <span class="stat"><b id="tps">0</b> tps</span>
+  <span class="name">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <path class="mark-hex" d="M16 2.5 27.7 9.25v13.5L16 29.5 4.3 22.75V9.25Z"/>
+      <path class="mark-core" d="M16 10.2 21 13.1v5.8l-5 2.9-5-2.9v-5.8Z"/>
+    </svg>
+    <span class="name-text">Consensus Arena<small>Byzantine fault simulator</small></span>
+  </span>
+  <span class="stat"><em>Round</em><b id="round">0</b></span>
+  <span class="stat"><em>Protocol</em><b id="consensus">-</b></span>
+  <span class="stat"><em>Nodes</em><b id="nodeCount">0</b></span>
+  <span class="stat"><em>Throughput</em><b id="tps">0</b><small>tps</small></span>
   <span class="link" id="link" data-state="connecting"><i></i><span id="status">Connecting</span></span>
 </header>
 
 <main class="layout">
 
-  <aside class="controls">
-    <a id="immersiveBtn" href="3d.html" target="_blank" style="display: block; text-align: center; line-height: 34px; text-decoration: none; background: #0078d4; color: white; border-radius: 4px; margin-bottom: 15px; font-weight: bold;">Launch 3D Arena</a>
-    <a id="immersiveBtn2" href="ML_BUILD/index.html" target="_blank" style="display: block; text-align: center; line-height: 34px; text-decoration: none; background: #107c10; color: white; border-radius: 4px; margin-bottom: 15px; font-weight: bold;">Launch ML Forest (3D)</a>
-    
-    
+  <aside class="controls panel">
+    <nav class="launch">
+      <a id="immersiveBtn" class="launch-card" href="3d.html" target="_blank">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8 20 7.4v9.2l-8 4.6-8-4.6V7.4Z"/><path d="M4 7.4l8 4.6 8-4.6M12 12v9.2"/></svg>
+        <span><b>Launch 3D Arena</b><small>Immersive network view</small></span>
+        <i class="arrow" aria-hidden="true">→</i>
+      </a>
+      <a id="immersiveBtn2" class="launch-card alt" href="forest.html" target="_blank">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="3.5" cy="19.5" r="1.6"/><circle cx="9" cy="19.5" r="1.6"/><circle cx="15" cy="19.5" r="1.6"/><circle cx="20.5" cy="19.5" r="1.6"/><path d="M11 6.2 7.2 10.4M13 6.2l3.8 4.2M5.2 13.7 4 18M6.8 13.7 8.4 18M17.2 13.7 15.6 18M18.8 13.7 20 18"/></svg>
+        <span><b>Launch ML Forest (3D)</b><small>Live decision paths</small></span>
+        <i class="arrow" aria-hidden="true">→</i>
+      </a>
+    </nav>
+
     <section>
       <h2>Consensus</h2>
       <div class="seg" id="consensusButtons"></div>
@@ -38,13 +56,15 @@
       <h2>Fault</h2>
       <select id="nodeSelect" aria-label="Node"></select>
       <select id="faultSelect" aria-label="Fault type"></select>
-      <button id="injectBtn" type="button" data-cmd>Inject</button>
+      <button id="injectBtn" class="primary" type="button" data-cmd>Inject</button>
     </section>
 
     <section>
       <h2>Network</h2>
-      <button id="splitBtn" type="button" data-cmd>Sever Network</button>
-      <button id="sybilBtn" type="button" data-cmd>Sybil Swarm (+5)</button>
+      <div class="stack">
+        <button id="splitBtn" type="button" data-cmd>Sever Network</button>
+        <button id="sybilBtn" type="button" data-cmd>Sybil Swarm (+5)</button>
+      </div>
     </section>
 
     <section>
@@ -56,16 +76,19 @@
     </section>
   </aside>
 
-  <div class="map" id="mapPanel" style="position: relative;">
-    <!-- Old 2D Canvas -->
-    <canvas id="arena"></canvas>
-    
+  <div class="map panel" id="mapPanel" style="position: relative;">
+    <div class="map-grid" aria-hidden="true"></div>
+    <div class="map-sweep" aria-hidden="true"></div>
+    <span class="corner tl" aria-hidden="true"></span><span class="corner tr" aria-hidden="true"></span>
+    <span class="corner bl" aria-hidden="true"></span><span class="corner br" aria-hidden="true"></span>
+    <span class="map-label" aria-hidden="true">Topology</span>
 
+    <canvas id="arena"></canvas>
 
     <div class="overlay" id="mapOverlay"></div>
   </div>
 
-  <aside class="side">
+  <aside class="side panel">
     <section id="nodeDetail" hidden>
       <div class="detail-head">
         <h2 id="detailTitle">—</h2>
@@ -102,12 +125,11 @@
 
 </main>
 
-<footer class="ticker" id="ticker">Awaiting blocks</footer>
+<footer class="ticker-wrap">
+  <span class="ticker-tag" aria-hidden="true">Blocks</span>
+  <div class="ticker" id="ticker">Awaiting blocks</div>
+</footer>
 
 <script src="app.js"></script>
 </body>
 </html>
-
-
-
-

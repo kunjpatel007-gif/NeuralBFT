@@ -1,20 +1,21 @@
 import random
 import time
 import uuid
-from .base import BaseConsensus
+from .base import BaseConsensus, is_eligible
 from ..node import Message
 
 class PoSMechanism(BaseConsensus):
     name = "PoS"
     
     async def execute_round(self, network) -> bool:
+        self.rejected_attempt(network, "BLOCK_PROPOSAL", "block_pos_rejected")
         weights = []
         valid_nodes = []
         for node in network.nodes:
             weight = node.reputation
             if node.status == 'Watched':
                 weight *= 0.3
-            elif node.status == 'Quarantined':
+            elif not is_eligible(node):
                 weight *= 0.0
                 
             weights.append(weight)

@@ -2,7 +2,8 @@
 
 // Auto-inject local token when running on localhost
 const _isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-if (_isLocalHost) {
+// Local runs get the development token, unless you already logged in with a real session
+if (_isLocalHost && !localStorage.getItem('arena_token')) {
     localStorage.setItem('arena_token', 'local_dev_token');
 }
 
@@ -10,10 +11,19 @@ if (_isLocalHost) {
 const lastActive = localStorage.getItem('last_active_time');
 if (lastActive && (Date.now() - parseInt(lastActive)) > 60000 && !_isLocalHost) {
     localStorage.removeItem('arena_token');
+    localStorage.removeItem('arena_token_expires');
     localStorage.removeItem('last_active_time');
 }
 
-const token = localStorage.getItem('arena_token');
+// Only a short-lived session token (issued by the backend at login) is ever kept here, never the
+// admin token itself. An expired session, or an old admin token left from before, sends you to log in.
+let token = localStorage.getItem('arena_token');
+const tokenExpires = Number(localStorage.getItem('arena_token_expires') || 0);
+if (token && !_isLocalHost && (!token.startsWith('s.') || Date.now() > tokenExpires)) {
+    localStorage.removeItem('arena_token');
+    localStorage.removeItem('arena_token_expires');
+    token = null;
+}
 if (!token) {
     window.location.href = 'login.html';
 }
@@ -24,9 +34,12 @@ setInterval(() => {
 }, 2000);
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.protocol === 'file:';
-const base_ws = new URLSearchParams(location.search).get('ws') || 
+// ?ws= (pointing the page at another server) is honoured only locally, so a crafted link can
+// never make the live site send your session to someone else's server
+const base_ws = (isLocal && new URLSearchParams(location.search).get('ws')) ||
                (isLocal ? 'ws://127.0.0.1:8765' : 'wss://neuralbft-backend-443293282760.asia-south1.run.app');
-const WS_URL = base_ws + "?token=" + encodeURIComponent(token);
+// No credentials in the URL (URLs end up in server logs): the token is sent as the first message
+const WS_URL = base_ws;
 
 const CONSENSUS = ['PoW', 'PoS', 'DPoS', 'PBFT'];
 const FAULTS = [
@@ -88,9 +101,25 @@ function connect() {
   let socket;
   try { socket = new WebSocket(WS_URL); } catch (e) { console.error(e); return retry(); }
   ws = socket;
-  socket.onopen = () => { if (ws === socket) { reconnectTimeout = 1000; setLink('live'); } };
+  socket.onopen = () => {
+    if (ws !== socket) return;
+    socket.send(JSON.stringify({ type: 'auth', token }));
+    reconnectTimeout = 1000;
+    setLink('live');
+  };
   socket.onmessage = (event) => { if (ws === socket) receive(event.data); };
-  socket.onclose = () => { if (ws === socket) { setLink('offline'); retry(); } };
+  socket.onclose = (event) => {
+    if (ws !== socket) return;
+    // Rejected credentials (expired session, changed admin token, lockout): back to the login page
+    if (event.code === 1008 && !_isLocalHost) {
+      localStorage.removeItem('arena_token');
+      localStorage.removeItem('arena_token_expires');
+      window.location.href = 'login.html';
+      return;
+    }
+    setLink('offline');
+    retry();
+  };
 }
 
 function retry() {
@@ -401,8 +430,8 @@ function drawMessages(now) {
     const a = topo.pos.get(fk), b = topo.pos.get(tk);
     if (!a || !b || a === b) continue;
     
-    const sender = state.nodes.find(n => n.id === m.from);
-    const receiver = state.nodes.find(n => n.id === m.to);
+    const sender = index.get(fk);
+    const receiver = index.get(tk);
     
     // Front-end rejection logic based strictly on status
     const isSenderBad = sender && (sender.status === 'Quarantined' || sender.status === 'Blacklisted');

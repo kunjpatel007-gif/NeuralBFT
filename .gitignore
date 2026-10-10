@@ -62,3 +62,22 @@ gcp-key.json
 # ML Datasets (Keep out of public repo!)
 *.csv
 
+
+# Custom Backups and User folders
+USER/
+backup_v3/
+backups_v3/
+backup*/
+
+# Unity backups made during the visual overhaul (kept locally, not in the repo)
+_backup*/
+
+# The WebGL builds the website serves ARE committed: re-include them after the
+# Unity "[Bb]uild/" rule above (each directory level has to be re-included)
+!frontend_web/Build/
+!frontend_web/Build/Build/
+!frontend_web/ML_BUILD/Build/
+!frontend_web/ML_BUILD/Build/Build/
+
+# Firebase CLI cache
+.firebase/

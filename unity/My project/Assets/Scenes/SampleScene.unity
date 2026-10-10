@@ -479,6 +479,8 @@ MonoBehaviour:
   lookSensitivity: 0.15
   maxRadius: 35
   moveSmoothTime: 0.1
+  lookSmoothTime: 0.06
+  introSeconds: 3.2
 --- !u!1 &410087039
 GameObject:
   m_ObjectHideFlags: 0
@@ -740,6 +742,8 @@ MonoBehaviour:
   messagePrefab: {fileID: 4008204633073420142, guid: 6afd75994bc92b6439f59d4cc00f0169, type: 3}
   blockSpawner: {fileID: 633604914}
   leaderboardManager: {fileID: 10259828}
+  secondsPerMessage: 7.3
+  maxVisibleMessages: 400
   nodeSpawner: {fileID: 633604916}
   ledgerZone: {fileID: 1883085895}
   timelineController: {fileID: 1744579030}

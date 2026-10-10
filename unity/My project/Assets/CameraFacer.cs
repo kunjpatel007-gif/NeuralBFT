@@ -32,8 +32,7 @@ public class CameraFacer : MonoBehaviour
         if (_cam == null) _cam = Camera.main; // re-acquire if scene reloaded
         if (_cam == null) return;
 
-        transform.rotation = Quaternion.LookRotation(
-            transform.position - _cam.transform.position
-        );
+        // Same facing as the card it sits on (see NodeHUD), so the panel and its text never tilt apart
+        transform.rotation = NodeHUD.FacingCamera(transform.position, _cam.transform);
     }
 }

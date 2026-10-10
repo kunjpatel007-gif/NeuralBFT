@@ -1,136 +1,108 @@
 using UnityEngine;
-using UnityEngine.UI;
 
+/// <summary>
+/// The arena's surroundings: a graphite void with a slight lift at eye level, a polished dark
+/// floor with a fine engraved grid that receives the scene's soft shadows and fades into the
+/// haze, and a few slow specks of dust for depth. Everything is parented to this object.
+/// </summary>
 public class BackgroundManager : MonoBehaviour
 {
-    // Track everything we allocate so we can clean it up in OnDestroy
-    private Texture2D  _gradientTex;
-    private Material   _particleMat;
-    private GameObject _canvasObj;
-    private GameObject _psObj;
+    [Tooltip("World height of the floor. The ledger's plinth stands on it.")]
+    public float floorHeight = -15.52f;
+
+    const float BackdropSize = 600f; // diameter; stays well inside the camera's far plane
+    const float FloorSize = 400f;
+
+    private Transform _backdrop;
+    private Camera _camera;
 
     void Start()
     {
-        if (Camera.main != null)
+        _camera = Camera.main;
+        if (_camera != null)
         {
-            Camera.main.clearFlags = CameraClearFlags.SolidColor;
-            Camera.main.backgroundColor = Color.black;
+            _camera.clearFlags = CameraClearFlags.SolidColor;
+            _camera.backgroundColor = StudioEnvironment.Haze;
         }
 
-        CreateGradientBackground();
-        CreateDataMotes();
+        Transform root = new GameObject("ArenaBackground").transform;
+        root.SetParent(transform, true);
+
+        CreateBackdrop(root);
+        CreateFloor(root);
+        CreateMotes(root);
     }
 
-    void CreateGradientBackground()
+    void LateUpdate()
     {
-        _canvasObj = new GameObject("PremiumBackgroundCanvas");
-        _canvasObj.transform.SetParent(transform); // parented — destroyed with us
-        Canvas canvas = _canvasObj.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceCamera;
-        canvas.worldCamera = Camera.main;
-        canvas.planeDistance = 100f;
-        _canvasObj.AddComponent<CanvasScaler>();
-
-        GameObject bgObj = new GameObject("GradientImage");
-        bgObj.transform.SetParent(_canvasObj.transform, false);
-        RawImage ri = bgObj.AddComponent<RawImage>();
-
-        RectTransform rt = bgObj.GetComponent<RectTransform>();
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.offsetMin = Vector2.zero;
-        rt.offsetMax = Vector2.zero;
-
-        int height = 256;
-        _gradientTex = new Texture2D(1, height);
-        _gradientTex.wrapMode = TextureWrapMode.Clamp;
-
-        Color topColor    = new Color(0.0f,  0.0f,  0.0f,  1f);
-        Color bottomColor = new Color(0.03f, 0.04f, 0.06f, 1f);
-
-        for (int y = 0; y < height; y++)
-        {
-            float t = (float)y / (height - 1);
-            t = t * t * (3f - 2f * t);
-            _gradientTex.SetPixel(0, y, Color.Lerp(bottomColor, topColor, t));
-        }
-        _gradientTex.Apply();
-        ri.texture = _gradientTex;
+        // The backdrop travels with the camera, so it always reads as infinitely far away
+        if (_camera == null) _camera = Camera.main;
+        if (_camera != null && _backdrop != null) _backdrop.position = _camera.transform.position;
     }
 
-    void CreateDataMotes()
+    void CreateBackdrop(Transform root)
     {
-        _psObj = new GameObject("AmbientDataMotes");
-        _psObj.transform.SetParent(transform); // parented — destroyed with us
-        _psObj.transform.position = Vector3.zero;
+        MeshRenderer renderer = ArenaFX.CreateMeshObject(root, "Backdrop", ArenaFX.Sphere, ArenaFX.BackdropMaterial);
+        _backdrop = renderer.transform;
+        _backdrop.localScale = Vector3.one * BackdropSize;
+    }
 
-        ParticleSystem ps = _psObj.AddComponent<ParticleSystem>();
+    void CreateFloor(Transform root)
+    {
+        MeshRenderer renderer = ArenaMaterials.Create(root, "Floor", ArenaFX.FloorQuad, ArenaMaterials.Floor(FloorSize), false);
+        renderer.transform.position = new Vector3(0f, floorHeight, 0f);
+        renderer.transform.localScale = Vector3.one * FloorSize;
+    }
+
+    void CreateMotes(Transform root)
+    {
+        var go = new GameObject("AmbientMotes");
+        go.transform.SetParent(root, false);
+        go.transform.position = Vector3.zero;
+
+        ParticleSystem ps = go.AddComponent<ParticleSystem>();
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
         var main = ps.main;
-        main.duration         = 10f;
-        main.loop             = true;
-        main.startLifetime    = new ParticleSystem.MinMaxCurve(15f, 25f);
-        main.startSpeed       = new ParticleSystem.MinMaxCurve(0.05f, 0.2f);
-        main.startSize        = new ParticleSystem.MinMaxCurve(0.03f, 0.12f);
-        main.simulationSpace  = ParticleSystemSimulationSpace.World;
-        main.maxParticles     = 300;
-
-        ParticleSystem.MinMaxGradient gradient = new ParticleSystem.MinMaxGradient();
-        gradient.mode     = ParticleSystemGradientMode.TwoColors;
-        gradient.colorMin = new Color(0f,   1f, 0.2f, 0.6f);
-        gradient.colorMax = new Color(0.2f, 1f, 0.5f, 0.6f);
-        main.startColor   = gradient;
+        main.loop = true;
+        main.prewarm = true;
+        main.duration = 10f;
+        main.startLifetime = new ParticleSystem.MinMaxCurve(16f, 26f);
+        main.startSpeed = 0f;
+        main.startSize = new ParticleSystem.MinMaxCurve(0.04f, 0.10f);
+        main.startColor = new ParticleSystem.MinMaxGradient(
+            new Color(0.72f, 0.76f, 0.80f, 0.18f),
+            new Color(0.80f, 0.84f, 0.88f, 0.12f));
+        main.simulationSpace = ParticleSystemSimulationSpace.World;
+        main.maxParticles = 40;
 
         var emission = ps.emission;
-        emission.rateOverTime = 15f;
+        emission.rateOverTime = 1.8f;
 
         var shape = ps.shape;
-        shape.shapeType       = ParticleSystemShapeType.Sphere;
-        shape.radius          = 45f;
-        shape.radiusThickness = 0.05f;
+        shape.shapeType = ParticleSystemShapeType.Sphere;
+        shape.radius = 34f;
+        shape.radiusThickness = 1f; // fill the volume, not just the surface
 
-        var vel = ps.velocityOverLifetime;
-        vel.enabled   = true;
-        vel.x         = new ParticleSystem.MinMaxCurve(0f, 0f);
-        vel.y         = new ParticleSystem.MinMaxCurve(0f, 0f);
-        vel.z         = new ParticleSystem.MinMaxCurve(0f, 0f);
-        vel.orbitalX  = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
-        vel.orbitalY  = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
-        vel.orbitalZ  = new ParticleSystem.MinMaxCurve(-0.03f, 0.03f);
+        var velocity = ps.velocityOverLifetime;
+        velocity.enabled = true;
+        velocity.orbitalX = new ParticleSystem.MinMaxCurve(-0.015f, 0.015f);
+        velocity.orbitalY = new ParticleSystem.MinMaxCurve(-0.02f, 0.02f);
+        velocity.orbitalZ = new ParticleSystem.MinMaxCurve(-0.015f, 0.015f);
 
-        var colorOverLife = ps.colorOverLifetime;
-        colorOverLife.enabled = true;
-        Gradient alphaGrad = new Gradient();
-        alphaGrad.SetKeys(
-            new GradientColorKey[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-            new GradientAlphaKey[] {
-                new GradientAlphaKey(0f, 0f),
-                new GradientAlphaKey(1f, 0.2f),
-                new GradientAlphaKey(1f, 0.8f),
-                new GradientAlphaKey(0f, 1f)
-            }
-        );
-        colorOverLife.color = new ParticleSystem.MinMaxGradient(alphaGrad);
+        // Fade in and out so motes never pop
+        var fade = new Gradient();
+        fade.SetKeys(
+            new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+            new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(1f, 0.2f), new GradientAlphaKey(1f, 0.8f), new GradientAlphaKey(0f, 1f) });
+        var colorOverLifetime = ps.colorOverLifetime;
+        colorOverLifetime.enabled = true;
+        colorOverLifetime.color = new ParticleSystem.MinMaxGradient(fade);
 
-        ParticleSystemRenderer psr = _psObj.GetComponent<ParticleSystemRenderer>();
-        Shader particleShader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
-        if (particleShader == null) particleShader = Shader.Find("Sprites/Default");
+        var renderer = go.GetComponent<ParticleSystemRenderer>();
+        renderer.sharedMaterial = ArenaFX.Glow(false, false);
+        ArenaFX.Unlit(renderer);
 
-        if (particleShader != null)
-        {
-            _particleMat = new Material(particleShader);
-            _particleMat.SetFloat("_Blend", 1);
-            psr.material = _particleMat;
-        }
-
-        ps.Simulate(25f, true, true, false);
         ps.Play();
-    }
-
-    void OnDestroy()
-    {
-        if (_gradientTex != null) Destroy(_gradientTex);
-        if (_particleMat  != null) Destroy(_particleMat);
-        // _canvasObj and _psObj are parented to us — Unity destroys them automatically
     }
 }

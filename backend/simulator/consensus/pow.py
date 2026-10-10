@@ -1,7 +1,7 @@
 import random
 import time
 import uuid
-from .base import BaseConsensus
+from .base import BaseConsensus, is_eligible
 from ..node import Message
 
 class PoWMechanism(BaseConsensus):
@@ -15,7 +15,7 @@ class PoWMechanism(BaseConsensus):
         winner = None
         
         for node in network.nodes:
-            if node.status == 'Quarantined':
+            if not is_eligible(node):
                 continue
                 
             threshold = self.difficulty
@@ -49,6 +49,7 @@ class PoWMechanism(BaseConsensus):
                 "is_rejected": False
             })
                     
+        self.rejected_attempt(network, "BLOCK_ANNOUNCEMENT", "block_pow_rejected")
         return block_produced
         
     def apply_mitigation(self, node) -> None:

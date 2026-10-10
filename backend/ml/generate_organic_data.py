@@ -6,8 +6,14 @@ import os
 np.random.seed(42)
 
 # File paths
-input_file = r"c:\Projects\BLOCKCHAIN PROJECT\backend\ml\master_training_data.csv"
-output_file = r"c:\Projects\BLOCKCHAIN PROJECT\backend\ml\master_training_data_ORGANIC.csv"
+import sys
+_here = os.path.dirname(os.path.abspath(__file__))
+input_file = os.path.join(_here, "master_training_data.csv")
+output_file = os.path.join(_here, "master_training_data_ORGANIC.csv")
+
+# Never clobber a hand-curated dataset by accident
+if os.path.exists(output_file) and "--force" not in sys.argv:
+    sys.exit(f"{output_file} already exists. Re-run with --force to overwrite it.")
 
 # Load data
 df = pd.read_csv(input_file)

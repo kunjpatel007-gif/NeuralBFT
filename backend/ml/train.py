@@ -1,3 +1,5 @@
+"""DEPRECATED: legacy 6-feature DecisionTree script. The live detector (backend/ml/detector.py)
+trains itself from master_training_data_ORGANIC.csv. Not used by the app."""
 import pandas as pd
 import os
 import joblib

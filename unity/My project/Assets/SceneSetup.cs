@@ -3,9 +3,9 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// Drop this on any empty GameObject in the scene.
-/// It configures post-processing, lighting, and ambient color on startup
-/// to give the entire scene a professional cyberpunk look.
+/// Lights and grades the picture. Runs automatically on load: studio lighting and reflections
+/// (see StudioEnvironment), high-quality anti-aliasing, and a restrained, filmic grade with no
+/// glare: bloom only on the brightest specular glints, a soft vignette and a trace of grain.
 /// </summary>
 public class SceneSetup : MonoBehaviour
 {
@@ -21,67 +21,42 @@ public class SceneSetup : MonoBehaviour
 
     void Start()
     {
-        // Nuke the old stray Particle System that was spawning the white hovering rectangles!
+        // Remove the stray editor Particle System that used to spawn white hovering rectangles
         GameObject strayParticles = GameObject.Find("Particle System");
         if (strayParticles != null) Destroy(strayParticles);
 
-        if (Camera.main != null)
-        {
-            Camera.main.clearFlags = CameraClearFlags.SolidColor;
-            Camera.main.backgroundColor = Color.black;
-        }
-
+        StudioEnvironment.Apply();
+        SetupCamera();
         SetupPostProcessing();
-        SetupLighting();
-        SetupAmbient();
-        // SetupBackground(); // Removed: Replaced by BackgroundManager
     }
 
-    void CreateGridFloor()
+    void SetupCamera()
     {
-        // Create a subtle holographic grid floor using a LineRenderer grid
-        GameObject gridGO = new GameObject("GridFloor");
-        gridGO.transform.position = new Vector3(0, -10f, 0);
+        Camera cam = Camera.main;
+        if (cam == null) return;
 
-        float gridSize = 50f;
-        float spacing = 2.5f;
-        Color gridColor = new Color(0.15f, 0.35f, 0.5f, 0.15f);
+        cam.clearFlags = CameraClearFlags.SolidColor;
+        cam.backgroundColor = StudioEnvironment.Haze;
+        cam.nearClipPlane = 0.1f;
 
-        Material lineMat = new Material(Shader.Find("Sprites/Default"));
-        lineMat.color = gridColor;
-
-        for (float x = -gridSize; x <= gridSize; x += spacing)
+        UniversalAdditionalCameraData data = cam.GetUniversalAdditionalCameraData();
+        if (data != null)
         {
-            CreateGridLine(gridGO.transform, lineMat, new Vector3(x, 0, -gridSize), new Vector3(x, 0, gridSize), gridColor);
+            data.renderPostProcessing = true;
+            data.renderShadows = true;
+            data.dithering = true; // hides banding in the dark gradients
+            // Clean edges on fine rings and thin lines, on top of the pipeline's MSAA
+            data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+            data.antialiasingQuality = AntialiasingQuality.High;
         }
-        for (float z = -gridSize; z <= gridSize; z += spacing)
-        {
-            CreateGridLine(gridGO.transform, lineMat, new Vector3(-gridSize, 0, z), new Vector3(gridSize, 0, z), gridColor);
-        }
-    }
-
-    void CreateGridLine(Transform parent, Material mat, Vector3 start, Vector3 end, Color color)
-    {
-        GameObject lineGO = new GameObject("GridLine");
-        lineGO.transform.SetParent(parent);
-        var lr = lineGO.AddComponent<LineRenderer>();
-        lr.material = mat;
-        lr.startColor = color;
-        lr.endColor = color;
-        lr.startWidth = 0.03f;
-        lr.endWidth = 0.03f;
-        lr.positionCount = 2;
-        lr.SetPositions(new Vector3[] { start, end });
-        lr.useWorldSpace = false;
     }
 
     void SetupPostProcessing()
     {
-        // Find the global Volume (URP creates one by default)
+        // Find the global Volume (URP creates one by default), or make one
         Volume volume = FindAnyObjectByType<Volume>();
         if (volume == null)
         {
-            // Create one if it doesn't exist
             GameObject volumeGO = new GameObject("Global Volume");
             volume = volumeGO.AddComponent<Volume>();
             volume.isGlobal = true;
@@ -90,67 +65,50 @@ public class SceneSetup : MonoBehaviour
 
         VolumeProfile profile = volume.profile;
 
-        // --- BLOOM: Makes the glowing nodes radiate neon light halos ---
-        if (!profile.TryGet(out Bloom bloom))
-        {
-            bloom = profile.Add<Bloom>(true);
-        }
-        bloom.active = true;
-        bloom.intensity.Override(1.2f);
-        bloom.threshold.Override(0.8f);
-        bloom.scatter.Override(0.65f);
-        bloom.tint.Override(new Color(0.9f, 0.95f, 1.0f)); // Slight cool tint
+        // BLOOM: only the brightest specular glints get a faint halo
+        Bloom bloom = GetOrAdd<Bloom>(profile);
+        bloom.intensity.Override(0.12f);
+        bloom.threshold.Override(1.4f);
+        bloom.scatter.Override(0.6f);
+        bloom.tint.Override(Color.white);
 
-        // --- VIGNETTE: Darkens screen edges for cinematic command-center look ---
-        if (!profile.TryGet(out Vignette vignette))
-        {
-            vignette = profile.Add<Vignette>(true);
-        }
-        vignette.active = true;
-        vignette.intensity.Override(0.35f); // Restored darker edge vignette
-        vignette.color.Override(new Color(0.0f, 0.02f, 0.05f)); 
+        // VIGNETTE: a gentle falloff that draws the eye to the centre
+        Vignette vignette = GetOrAdd<Vignette>(profile);
+        vignette.intensity.Override(0.28f);
+        vignette.smoothness.Override(0.5f);
+        vignette.color.Override(new Color(0.01f, 0.011f, 0.013f));
 
-        // --- COLOR ADJUSTMENTS: Punch up the neon contrast ---
-        if (!profile.TryGet(out ColorAdjustments colorAdj))
-        {
-            colorAdj = profile.Add<ColorAdjustments>(true);
-        }
-        colorAdj.active = true;
-        colorAdj.contrast.Override(12f); // Restored deep contrast
-        colorAdj.saturation.Override(15f); 
-        colorAdj.postExposure.Override(0.0f); // Removed artificial brightness boost
-        colorAdj.colorFilter.Override(new Color(0.85f, 0.92f, 1.0f)); 
+        // COLOUR: neutral and slightly desaturated, so status colours read as information
+        ColorAdjustments colorAdj = GetOrAdd<ColorAdjustments>(profile);
+        colorAdj.contrast.Override(10f);
+        colorAdj.saturation.Override(-6f);
+        colorAdj.postExposure.Override(0.15f);
+        colorAdj.colorFilter.Override(Color.white);
 
-        // --- TONEMAPPING: Professional film-grade color curve ---
-        if (!profile.TryGet(out Tonemapping tonemap))
-        {
-            tonemap = profile.Add<Tonemapping>(true);
-        }
-        tonemap.active = true;
-        tonemap.mode.Override(TonemappingMode.ACES);
+        // TONEMAPPING: Neutral rolls highlights off smoothly without shifting colours
+        Tonemapping tonemap = GetOrAdd<Tonemapping>(profile);
+        tonemap.mode.Override(TonemappingMode.Neutral);
 
-        Debug.Log("[SceneSetup] Post-processing configured: Bloom + Vignette + Color Grading + ACES Tonemapping");
+        // DEPTH OF FIELD: off. It blurred the node cards and labels when seen from a distance
+        if (profile.TryGet(out DepthOfField dof))
+        {
+            dof.mode.Override(DepthOfFieldMode.Off);
+            dof.active = false;
+        }
+
+        // GRAIN: very fine, just enough to take the digital edge off
+        FilmGrain grain = GetOrAdd<FilmGrain>(profile);
+        grain.type.Override(FilmGrainLookup.Thin1);
+        grain.intensity.Override(0.1f);
+        grain.response.Override(0.8f);
+
+        Debug.Log("[SceneSetup] Studio lighting, SMAA and a restrained filmic grade configured");
     }
 
-    void SetupLighting()
+    static T GetOrAdd<T>(VolumeProfile profile) where T : VolumeComponent
     {
-        // Find the main directional light and tune it
-        Light[] lights = FindObjectsByType<Light>(FindObjectsSortMode.None);
-        foreach (var light in lights)
-        {
-            if (light.type == LightType.Directional)
-            {
-                light.intensity = 0.6f; // Dim the main light so nodes glow more
-                light.color = new Color(0.7f, 0.8f, 1.0f); // Cool blue-white
-                light.shadowStrength = 0.5f;
-            }
-        }
-    }
-
-    void SetupAmbient()
-    {
-        // Deep space ambient — very dark with a subtle blue tint
-        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-        RenderSettings.ambientLight = new Color(0.02f, 0.03f, 0.06f);
+        if (!profile.TryGet(out T component)) component = profile.Add<T>(true);
+        component.active = true;
+        return component;
     }
 }

@@ -2,14 +2,15 @@ import random
 import time
 import uuid
 import hashlib
-from .base import BaseConsensus
+from .base import BaseConsensus, is_eligible
 from ..node import Message
 
 class PBFTMechanism(BaseConsensus):
     name = "PBFT"
     
     async def execute_round(self, network) -> bool:
-        valid_nodes = [n for n in network.nodes if n.status != 'Quarantined']
+        # Ineligible (Quarantined/Blacklisted) nodes lose leader/quorum authority.
+        valid_nodes = [n for n in network.nodes if is_eligible(n)]
         n_count = len(valid_nodes)
         
         if n_count < 4:
@@ -71,8 +72,25 @@ class PBFTMechanism(BaseConsensus):
                     )
                     network.add_message(msg)
                     
+        # Ineligible Byzantine nodes keep spamming votes; honest nodes ignore them (not counted below)
+        for sender in network.nodes:
+            if is_eligible(sender) or not sender.is_byzantine:
+                continue
+            for receiver in network.nodes:
+                if sender.id != receiver.id:
+                    for mtype in ("PREPARE", "COMMIT"):
+                        network.add_message(Message(
+                            id=str(uuid.uuid4()),
+                            sender_id=sender.id,
+                            receiver_id=receiver.id,
+                            type=mtype,
+                            payload={"block_id": "block_pbft"},
+                            timestamp=time.time()
+                        ))
+
         # Check if the leader's partition has enough nodes to reach 2f+1 consensus
-        n_total = len(network.nodes)
+        # (validator set = eligible nodes; excluded nodes are removed from n)
+        n_total = len(valid_nodes)
         f = (n_total - 1) // 3
         required_votes = 2 * f + 1
         partition_size = sum(1 for n in valid_nodes if n.partition_id == leader.partition_id)
